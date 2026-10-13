@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Set a new password | Sidebar</title>
+<style>
+  :root { --bg:#fff; --fg:#111; --card:#f3f4f6; --court:#1f6f4a; --muted:#6b7280; }
+  @media (prefers-color-scheme: dark) { :root { --bg:#0b0b0c; --fg:#f3f4f6; --card:#1c1c1f; --muted:#9ca3af; } }
+  body { font-family:-apple-system,system-ui,sans-serif; background:var(--bg); color:var(--fg); margin:0; padding:24px 16px; }
+  main { max-width:420px; margin:40px auto; }
+  h1 { font-size:26px; margin:0 0 8px; }
+  p { color:var(--muted); line-height:1.5; }
+  input { width:100%; box-sizing:border-box; font-size:17px; padding:14px; border-radius:12px; border:1px solid #9993; background:var(--card); color:var(--fg); margin:6px 0; }
+  button { width:100%; font-size:17px; font-weight:700; padding:14px; border:0; border-radius:12px; background:var(--court); color:#fff; margin-top:10px; }
+  button:disabled { opacity:.5; }
+  .msg { margin-top:14px; font-weight:600; }
+  .err { color:#dc2626; } .ok { color:var(--court); }
+  nav { margin-top:40px; font-size:14px; } nav a { color:var(--muted); }
+</style>
+</head>
+<body>
+<main>
+  <h1>Set a new password</h1>
+  <p id="intro">Pick a new password for your Sidebar account.</p>
+  <form id="form" hidden>
+    <input id="pw" type="password" autocomplete="new-password" placeholder="New password, 8 or more characters" minlength="8" required>
+    <input id="pw2" type="password" autocomplete="new-password" placeholder="Type it again" minlength="8" required>
+    <button id="go" type="submit">Change password</button>
+  </form>
+  <p id="msg" class="msg"></p>
+  <nav><a href="privacy.html">Privacy Policy</a> &middot; <a href="terms.html">Terms</a> &middot; <a href="support.html">Support</a></nav>
+</main>
+<script>
+  var API = "https://ovoveexagfkgynttrvgh.supabase.co";
+  var KEY = "sb_publishable_VitKmFWW5rkUITFq0-sHlg_M6vNDstD";
+  var params = new URLSearchParams(location.hash.replace(/^#/, ""));
+  var token = params.get("access_token");
+  var form = document.getElementById("form"), msg = document.getElementById("msg");
+  function say(text, cls) { msg.textContent = text; msg.className = "msg " + (cls || ""); }
+  if (!token) {
+    document.getElementById("intro").hidden = true;
+    say(params.get("error_description") ? "That link expired or was already used. Go back to Sidebar and tap Forgot password to get a new one." : "Open this page from the link in your reset email.", "err");
+  } else {
+    form.hidden = false;
+    form.addEventListener("submit", function (e) {
+      e.preventDefault();
+      var a = document.getElementById("pw").value, b = document.getElementById("pw2").value;
+      if (a !== b) { say("The two passwords don't match.", "err"); return; }
+      if (a.length < 8) { say("Use at least 8 characters.", "err"); return; }
+      document.getElementById("go").disabled = true;
+      fetch(API + "/auth/v1/user", {
+        method: "PUT",
+        headers: { "apikey": KEY, "Authorization": "Bearer " + token, "Content-Type": "application/json" },
+        body: JSON.stringify({ password: a })
+      }).then(function (r) { return r.json().then(function (j) { return { ok: r.ok, j: j }; }); })
+        .then(function (res) {
+          if (res.ok) {
+            form.hidden = true; document.getElementById("intro").hidden = true;
+            history.replaceState(null, "", location.pathname);
+            say("Password changed. Go back to the Sidebar app and sign in with your new password.", "ok");
+          } else {
+            document.getElementById("go").disabled = false;
+            say(res.j.msg || res.j.message || "Something went wrong. Try the link again.", "err");
+          }
+        }).catch(function () { document.getElementById("go").disabled = false; say("No connection. Try again.", "err"); });
+    });
+  }
+</script>
+</body>
+</html>
