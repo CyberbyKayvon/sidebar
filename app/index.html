@@ -1,0 +1,426 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Sidebar</title>
+<meta name="theme-color" content="#12543f">
+<style>
+  :root { --court:#12543f; --court2:#1f7a5a; --ball:#d9f538; --bg:#f2f2f7; --card:#ffffff; --text:#1c1c1e; --muted:#6b6b70; --line:#e2e2e8; --danger:#d1342f; }
+  @media (prefers-color-scheme: dark) {
+    :root { --court:#7fd3ad; --court2:#2f8f6c; --bg:#000; --card:#1c1c1e; --text:#f2f2f7; --muted:#a1a1a6; --line:#2c2c30; }
+  }
+  * { box-sizing:border-box; }
+  html { -webkit-text-size-adjust:100%; }
+  body { margin:0; background:var(--bg); color:var(--text); font:16px/1.45 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif; }
+  a { color:var(--court); }
+  button { font:inherit; cursor:pointer; }
+  .wrap { max-width:960px; margin:0 auto; padding:0 16px 80px; }
+  header.top { position:sticky; top:0; z-index:5; background:var(--card); border-bottom:1px solid var(--line); }
+  header.top .in { max-width:960px; margin:0 auto; padding:10px 16px; display:flex; align-items:center; gap:12px; }
+  .logo { width:34px; height:34px; border-radius:10px; background:#12543f; display:grid; place-items:center; flex:none; }
+  .logo i { width:18px; height:18px; border-radius:50%; background:var(--ball); display:block; }
+  .brand { font-weight:800; font-size:18px; }
+  .sp { flex:1; }
+  .pill { white-space:nowrap; border:0; background:var(--bg); color:var(--text); padding:8px 14px; border-radius:999px; font-weight:600; font-size:14px; }
+  .btn { border:0; background:#12543f; color:#fff; padding:14px 18px; border-radius:14px; font-weight:700; font-size:16px; width:100%; }
+  .btn.ghost { background:transparent; color:var(--court); border:1.5px solid var(--court); }
+  .btn:disabled { opacity:.45; }
+  .card { background:var(--card); border-radius:16px; padding:14px 16px; margin:12px 0; }
+  h1 { font-size:26px; margin:20px 0 6px; } h2 { font-size:19px; margin:22px 0 8px; } h3 { margin:0 0 4px; font-size:16px; }
+  .muted { color:var(--muted); } .small { font-size:13px; }
+  input, textarea { width:100%; font:inherit; padding:14px; border-radius:12px; border:1px solid var(--line); background:var(--card); color:var(--text); margin:6px 0; }
+  .err { color:var(--danger); font-weight:600; margin:8px 0; } .ok { color:var(--court); font-weight:600; margin:8px 0; }
+  .auth { max-width:420px; margin:0 auto; padding:28px 16px 80px; }
+  .hero { text-align:center; padding:36px 0 8px; } .hero .logo { width:64px; height:64px; border-radius:18px; margin:0 auto 14px; } .hero .logo i { width:34px; height:34px; }
+  .hero h1 { margin:6px 0; font-size:32px; }
+  .grid { display:grid; gap:12px; grid-template-columns:repeat(auto-fill,minmax(260px,1fr)); }
+  .stu { display:flex; gap:12px; align-items:center; text-decoration:none; color:inherit; } .stu .av { width:46px; height:46px; border-radius:50%; background:var(--ball); color:#000; display:grid; place-items:center; font-weight:800; font-size:20px; flex:none; }
+  .tabs { display:flex; gap:4px; overflow-x:auto; border-bottom:1px solid var(--line); margin:10px 0 4px; scrollbar-width:none; }
+  .tabs a { padding:10px 12px; text-decoration:none; color:var(--muted); font-weight:600; white-space:nowrap; border-bottom:3px solid transparent; }
+  .tabs a.on { color:var(--court); border-color:var(--court); }
+  .chip { display:inline-block; font-size:12px; font-weight:700; padding:3px 9px; border-radius:999px; background:var(--bg); color:var(--muted); }
+  .chip.up { background:var(--ball); color:#000; }
+  .row { display:flex; gap:12px; align-items:flex-start; }
+  .dateBox { width:52px; flex:none; text-align:center; background:var(--ball); color:#000; border-radius:12px; padding:6px 0; font-weight:800; } .dateBox small { display:block; font-size:11px; letter-spacing:.04em; }
+  ul.plan { list-style:none; padding:0; margin:6px 0; } ul.plan li { padding:6px 0; border-bottom:1px solid var(--line); } ul.plan li:last-child { border:0; } ul.plan li.done { color:var(--muted); text-decoration:line-through; }
+  .bar { height:10px; background:var(--bg); border-radius:99px; overflow:hidden; } .bar i { display:block; height:100%; background:var(--court2); border-radius:99px; }
+  .media { display:grid; gap:12px; grid-template-columns:repeat(auto-fill,minmax(220px,1fr)); }
+  .tile { background:var(--card); border-radius:14px; overflow:hidden; cursor:pointer; border:0; text-align:left; color:inherit; padding:0; }
+  .tile .th { aspect-ratio:16/9; background:#0e3d2e; display:grid; place-items:center; color:#fff; font-size:34px; background-size:cover; background-position:center; }
+  .tile .tx { padding:10px 12px; }
+  .modal { position:fixed; inset:0; background:rgba(0,0,0,.8); z-index:20; display:grid; place-items:center; padding:16px; }
+  .modal .box { background:var(--card); border-radius:16px; max-width:760px; width:100%; max-height:92vh; overflow:auto; padding:14px; }
+  .modal video, .modal iframe { width:100%; aspect-ratio:16/9; border:0; border-radius:10px; background:#000; }
+  .chat { display:flex; flex-direction:column; gap:8px; margin:12px 0; }
+  .msg { max-width:80%; padding:9px 13px; border-radius:16px; background:var(--card); align-self:flex-start; white-space:pre-wrap; word-break:break-word; }
+  .msg.me { align-self:flex-end; background:#12543f; color:#fff; } .msg small { display:block; opacity:.7; font-size:11px; margin-bottom:2px; }
+  .compose { position:sticky; bottom:0; display:flex; gap:8px; background:var(--bg); padding:10px 0 calc(10px + env(safe-area-inset-bottom)); }
+  .compose input { margin:0; flex:1; } .compose .btn { width:auto; }
+  .daynav { display:flex; align-items:center; gap:8px; margin:14px 0 8px; } .daynav .sp { flex:1; }
+  .planner { position:relative; background:var(--card); border-radius:16px; padding:6px 0; overflow:hidden; }
+  .hr { display:flex; align-items:flex-start; border-top:1px solid var(--line); } .hr:first-child { border:0; }
+  .hr span { width:56px; flex:none; text-align:right; padding-right:8px; font-size:11px; color:var(--muted); transform:translateY(-7px); }
+  .blk { position:absolute; border-radius:9px; padding:5px 8px; font-size:12px; overflow:hidden; color:var(--text); border-left:4px solid; text-decoration:none; }
+  .blk b { display:block; font-size:12.5px; }
+  .now { position:absolute; left:50px; right:0; height:2px; background:#e0352f; z-index:2; }
+  .empty { text-align:center; color:var(--muted); padding:40px 0; }
+  .recap { background:var(--bg); border-radius:12px; padding:10px 12px; margin-top:8px; white-space:pre-wrap; }
+  nav.foot { margin-top:40px; font-size:13px; color:var(--muted); text-align:center; }
+</style>
+</head>
+<body>
+<div id="app"></div>
+<script>
+"use strict";
+var API = "https://ovoveexagfkgynttrvgh.supabase.co";
+var KEY = "sb_publishable_VitKmFWW5rkUITFq0-sHlg_M6vNDstD";
+var SITE = location.origin + location.pathname.replace(/app\/(index\.html)?$/, "");
+var COLORS = ["#12543f","#2563eb","#ea7a12","#7c3aed","#db2777","#0d9488","#4f46e5","#92400e"];
+
+/* ---------- small helpers ---------- */
+function $(s, r) { return (r || document).querySelector(s); }
+function esc(t) { return String(t == null ? "" : t).replace(/[&<>"']/g, function (c) { return {"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]; }); }
+function fmtDate(d, o) { return new Date(d).toLocaleDateString(undefined, o || { weekday: "long", month: "long", day: "numeric" }); }
+function fmtTime(d) { return new Date(d).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }); }
+function sameDay(a, b) { a = new Date(a); b = new Date(b); return a.toDateString() === b.toDateString(); }
+function startOfDay(d) { d = new Date(d); d.setHours(0, 0, 0, 0); return d; }
+function rich(t) { // bold and bullets from the app's notes
+  return esc(t || "").replace(/\*\*(.+?)\*\*/g, "<b>$1</b>").replace(/\n/g, "<br>");
+}
+function markLines(t) { return String(t || "").replace(/\*\*(.+?)\*\*/g, "$1"); }
+
+/* ---------- session and API ---------- */
+var S = { session: null, profile: null, students: [], cache: {}, signed: {} };
+try { S.session = JSON.parse(localStorage.getItem("sidebar.web.session") || "null"); } catch (e) {}
+function saveSession(s) {
+  S.session = s;
+  try { if (s) localStorage.setItem("sidebar.web.session", JSON.stringify(s)); else localStorage.removeItem("sidebar.web.session"); } catch (e) {}
+}
+function toSession(j) {
+  return { access_token: j.access_token, refresh_token: j.refresh_token, user: { id: j.user.id }, expires_at: Date.now() + (j.expires_in - 60) * 1000 };
+}
+function raw(path, opts) {
+  opts = opts || {};
+  var h = { apikey: KEY };
+  if (opts.json !== undefined) h["Content-Type"] = "application/json";
+  if (opts.auth !== false && S.session) h.Authorization = "Bearer " + S.session.access_token; else h.Authorization = "Bearer " + KEY;
+  if (opts.prefer) h.Prefer = opts.prefer;
+  return fetch(API + path, { method: opts.method || (opts.json !== undefined ? "POST" : "GET"), headers: h, body: opts.json !== undefined ? JSON.stringify(opts.json) : undefined })
+    .then(function (r) {
+      return r.text().then(function (t) {
+        var j = null; try { j = t ? JSON.parse(t) : null; } catch (e) {}
+        if (!r.ok) { var e = new Error((j && (j.message || j.msg || j.error_description)) || ("Something went wrong (" + r.status + ")")); e.status = r.status; throw e; }
+        return j;
+      });
+    });
+}
+function refresh() {
+  if (!S.session) return Promise.reject(new Error("Sign in"));
+  if (S.session.expires_at > Date.now()) return Promise.resolve();
+  return raw("/auth/v1/token?grant_type=refresh_token", { json: { refresh_token: S.session.refresh_token }, auth: false })
+    .then(function (j) { saveSession(toSession(j)); })
+    .catch(function () { saveSession(null); throw new Error("Please sign in again."); });
+}
+function api(path, opts) { return refresh().then(function () { return raw("/rest/v1/" + path, opts); }); }
+
+/* ---------- auth ---------- */
+function signIn(email, pw) {
+  return raw("/auth/v1/token?grant_type=password", { json: { email: email, password: pw }, auth: false }).then(function (j) { saveSession(toSession(j)); });
+}
+function signOut() { saveSession(null); S.profile = null; S.students = []; S.cache = {}; location.hash = "#/"; render(); }
+
+/* ---------- views ---------- */
+var app = $("#app");
+function shell(inner, opts) {
+  opts = opts || {};
+  var who = S.profile ? esc(S.profile.display_name || "") : "";
+  return '<header class="top"><div class="in"><a href="#/" class="logo" aria-label="Sidebar home"><i></i></a><a href="#/" class="brand" style="text-decoration:none;color:inherit">Sidebar</a><span class="sp"></span>' +
+    (S.profile && S.profile.role === "coach" ? '<a class="pill" href="#/cal" style="text-decoration:none">Schedule</a>' : "") +
+    (S.session ? '<button class="pill" id="out">' + 'Sign out</button>' : "") +
+    '</div></header><div class="wrap">' + inner + '<nav class="foot"><a href="' + SITE + 'privacy.html">Privacy</a> &middot; <a href="' + SITE + 'terms.html">Terms</a> &middot; <a href="' + SITE + 'support.html">Support</a></nav></div>';
+}
+
+function authView(mode, msg) {
+  var body;
+  if (mode === "join") {
+    body = '<h2>Join your coach</h2><p class="muted">Type the invite code your coach sent you.</p>' +
+      '<input id="code" placeholder="Invite code, like KAYV 4821" autocapitalize="characters" autocomplete="off">' +
+      '<div id="pv"></div><div id="m" class="err"></div>' +
+      '<button class="btn" id="go">Continue</button>' +
+      '<p class="small muted" style="text-align:center"><a href="#/" id="back">I already have an account</a></p>';
+  } else if (mode === "forgot") {
+    body = '<h2>Forgot password</h2><p class="muted">We will email you a link to set a new password.</p>' +
+      '<input id="email" type="email" placeholder="Email" autocomplete="email"><div id="m"></div>' +
+      '<button class="btn" id="go">Email me a link</button><p class="small" style="text-align:center"><a href="#/" id="back">Back to sign in</a></p>';
+  } else {
+    body = '<input id="email" type="email" placeholder="Email" autocomplete="email"><input id="pw" type="password" placeholder="Password" autocomplete="current-password">' +
+      '<div id="m" class="err">' + esc(msg || "") + '</div><button class="btn" id="go">Sign in</button>' +
+      '<p class="small" style="text-align:center"><a href="#/forgot">Forgot password?</a></p>' +
+      '<button class="btn ghost" id="join">I have an invite code</button>';
+  }
+  app.innerHTML = '<div class="auth"><div class="hero"><div class="logo"><i></i></div><h1>Sidebar</h1><p class="muted">Your coach, your lessons, your notes and clips, in one private place.</p></div>' + body +
+    '<nav class="foot"><a href="' + SITE + 'privacy.html">Privacy</a> &middot; <a href="' + SITE + 'terms.html">Terms</a> &middot; <a href="' + SITE + 'support.html">Support</a></nav></div>';
+  var m = $("#m");
+  function say(t, ok) { m.className = ok ? "ok" : "err"; m.textContent = t; }
+  var go = $("#go");
+  if (mode === "join") joinFlow(go, say);
+  else if (mode === "forgot") {
+    go.onclick = function () {
+      var em = $("#email").value.trim(); if (!em) return;
+      go.disabled = true;
+      raw("/auth/v1/recover?redirect_to=" + encodeURIComponent(SITE + "reset.html"), { json: { email: em }, auth: false })
+        .then(function () { say("Check your email. If that address has an account, a link is on its way.", true); })
+        .catch(function (e) { say(e.message); }).then(function () { go.disabled = false; });
+    };
+  } else {
+    var submit = function () {
+      go.disabled = true; say("");
+      signIn($("#email").value.trim(), $("#pw").value).then(boot).catch(function (e) { say(e.message); go.disabled = false; });
+    };
+    go.onclick = submit; $("#pw").onkeydown = function (e) { if (e.key === "Enter") submit(); };
+    $("#join").onclick = function () { location.hash = "#/join"; };
+  }
+}
+
+function joinFlow(go, say) {
+  var pv = null;
+  go.onclick = function () {
+    if (!pv) {
+      var code = $("#code").value.trim(); if (!code) return;
+      go.disabled = true; say("");
+      raw("/rest/v1/rpc/preview_invite", { json: { code: code }, auth: false }).then(function (rows) {
+        pv = rows && rows[0];
+        if (!pv) { say("That code isn't valid or was already used. Ask your coach for a new one."); return; }
+        $("#code").readOnly = true;
+        $("#pv").innerHTML = '<div class="card"><h3>Welcome, ' + esc(pv.student_name) + '</h3><div class="muted small">Age ' + esc(pv.student_age) + ' &middot; Coach ' + esc(pv.coach_name) + (pv.academy ? ", " + esc(pv.academy) : "") + '</div></div>' +
+          '<input id="email" type="email" placeholder="Email" autocomplete="email"><input id="pw" type="password" placeholder="Password, 8 or more characters" autocomplete="new-password">' +
+          '<label class="small muted" style="display:flex;gap:8px;align-items:flex-start;margin:8px 0"><input type="checkbox" id="ok" style="width:auto;margin:3px 0 0"> <span>I am a parent or guardian, or a player 13 or older. I agree to the <a href="' + SITE + 'terms.html" target="_blank">Terms</a> and <a href="' + SITE + 'privacy.html" target="_blank">Privacy Policy</a>.</span></label>';
+        go.textContent = "Create my account";
+      }).catch(function (e) { say(e.message); }).then(function () { go.disabled = false; });
+      return;
+    }
+    var em = $("#email").value.trim(), pw = $("#pw").value;
+    if (!em.includes("@") || pw.length < 8) { say("Enter your email and a password of 8 or more characters."); return; }
+    if (!$("#ok").checked) { say("Please confirm the box above."); return; }
+    go.disabled = true; say("");
+    raw("/auth/v1/signup", { json: { email: em, password: pw }, auth: false }).then(function (j) {
+      if (!j.access_token) throw new Error("Account made. Check your email to confirm it, then sign in.");
+      saveSession(toSession(j));
+      return api("profiles", { json: [{ id: S.session.user.id, role: "parent", display_name: pv.student_name, academy: "" }], prefer: "resolution=merge-duplicates,return=minimal" });
+    }).then(function () {
+      return api("rpc/claim_invite", { json: { code: $("#code").value.trim() } });
+    }).then(boot).catch(function (e) { say(e.message); go.disabled = false; });
+  };
+}
+
+/* ---------- data ---------- */
+function boot() {
+  return refresh().then(function () {
+    return Promise.all([api("profiles?id=eq." + S.session.user.id + "&select=*"), api("students?select=*&order=created_at.asc")]);
+  }).then(function (r) {
+    S.profile = r[0][0] || { role: "parent", display_name: "" };
+    S.students = r[1];
+    S.cache = {};
+    render();
+  }).catch(function (e) { saveSession(null); authView("signin", e.message); });
+}
+function studentById(id) { return S.students.filter(function (s) { return s.id === id; })[0]; }
+function colorOf(id) { var i = S.students.findIndex(function (s) { return s.id === id; }); return COLORS[(i < 0 ? 0 : i) % COLORS.length]; }
+function getLessons(id) {
+  return api("lesson_students?student_id=eq." + id + "&select=lessons(*)").then(function (rows) {
+    return rows.map(function (r) { return r.lessons; }).filter(Boolean).sort(function (a, b) { return new Date(a.start_at) - new Date(b.start_at); });
+  });
+}
+function signedUrl(path) {
+  if (!path) return Promise.resolve(null);
+  if (S.signed[path]) return Promise.resolve(S.signed[path]);
+  return refresh().then(function () {
+    return raw("/storage/v1/object/sign/clips/" + path.split("/").map(encodeURIComponent).join("/"), { json: { expiresIn: 3600 } });
+  }).then(function (j) { var u = API + "/storage/v1" + j.signedURL; S.signed[path] = u; return u; }).catch(function () { return null; });
+}
+
+/* ---------- routing ---------- */
+var chatTimer = null;
+function render() {
+  clearInterval(chatTimer);
+  if (!S.session) { var h = location.hash; return authView(h === "#/join" ? "join" : h === "#/forgot" ? "forgot" : "signin"); }
+  if (!S.profile) { app.innerHTML = shell('<p class="empty">Loading...</p>'); return boot(); }
+  var h2 = location.hash.replace(/^#\/?/, "").split("/");
+  if (h2[0] === "s" && h2[1]) return studentView(h2[1], h2[2] || "schedule");
+  if (h2[0] === "cal") return calView();
+  return homeView();
+}
+window.addEventListener("hashchange", render);
+document.addEventListener("click", function (e) { if (e.target && e.target.id === "out") signOut(); });
+
+function homeView() {
+  var coach = S.profile.role === "coach";
+  var html = '<h1>' + (coach ? "Your students" : "Your Sidebar") + '</h1>';
+  if (!S.students.length) {
+    html += '<div class="card empty">' + (coach ? "No students yet. Add them in the Sidebar app on your phone, and they show up here." : "Nothing here yet. Use the invite code your coach sent you.") + '</div>';
+  } else {
+    html += '<div class="grid">' + S.students.map(function (s) {
+      return '<a class="card stu" href="#/s/' + s.id + '/schedule"><div class="av">' + esc(s.name.charAt(0)) + '</div><div><h3>' + esc(s.name) + '</h3><div class="muted small">Age ' + esc(s.age) + ' &middot; ' + esc(s.level) + (coach && !s.claimed ? ' &middot; Invited' : '') + '</div></div></a>';
+    }).join("") + '</div>';
+  }
+  app.innerHTML = shell(html);
+}
+
+var TABS = [["schedule", "Schedule"], ["notes", "Notes"], ["clips", "Clips"], ["progress", "Progress"], ["tournaments", "Tournaments"], ["chat", "Chat"]];
+function studentView(id, tab) {
+  var s = studentById(id);
+  if (!s) { location.hash = "#/"; return; }
+  var tabs = '<div class="tabs">' + TABS.map(function (t) { return '<a href="#/s/' + id + '/' + t[0] + '" class="' + (t[0] === tab ? "on" : "") + '">' + t[1] + '</a>'; }).join("") + '</div>';
+  app.innerHTML = shell('<p style="margin:14px 0 0"><a href="#/" style="text-decoration:none">&larr; All students</a></p><h1 style="margin-top:6px">' + esc(s.name) + "'s Sidebar</h1><div class='muted small'>Age " + esc(s.age) + ' &middot; ' + esc(s.level) + '</div>' + tabs + '<div id="tab"><p class="empty">Loading...</p></div>');
+  var box = $("#tab");
+  var fail = function (e) { box.innerHTML = '<p class="err">' + esc(e.message) + '</p>'; };
+  if (tab === "schedule") scheduleTab(id, box).catch(fail);
+  else if (tab === "notes") notesTab(id, box).catch(fail);
+  else if (tab === "clips") clipsTab(id, box).catch(fail);
+  else if (tab === "progress") progressTab(id, box).catch(fail);
+  else if (tab === "tournaments") tournTab(id, box).catch(fail);
+  else if (tab === "chat") chatTab(s, box).catch(fail);
+}
+
+function scheduleTab(id, box) {
+  return getLessons(id).then(function (ls) {
+    var now = Date.now();
+    var up = ls.filter(function (l) { return new Date(l.start_at).getTime() + l.minutes * 60000 >= now; });
+    var past = ls.filter(function (l) { return up.indexOf(l) < 0; }).reverse();
+    function card(l) {
+      var d = new Date(l.start_at), items = l.items || [];
+      var plan = items.filter(function (i) { return !(i.isHomework || i.is_homework); }), hw = items.filter(function (i) { return i.isHomework || i.is_homework; });
+      function list(t, a) { return a.length ? '<h3 style="margin-top:10px">' + t + '</h3><ul class="plan">' + a.map(function (i) { return '<li class="' + (i.done ? "done" : "") + '">' + esc(i.text) + '</li>'; }).join("") + '</ul>' : ""; }
+      return '<div class="card"><div class="row"><div class="dateBox"><small>' + esc(d.toLocaleDateString(undefined, { weekday: "short" }).toUpperCase()) + '</small>' + d.getDate() + '</div><div style="flex:1"><h3>' + esc(l.kind) + '</h3><div class="muted small">' + fmtDate(d, { month: "long", day: "numeric" }) + ' &middot; ' + fmtTime(d) + ' to ' + fmtTime(new Date(d.getTime() + l.minutes * 60000)) + (l.location ? ' &middot; ' + esc(l.location) : '') + '</div>' +
+        (l.focus ? '<div style="margin-top:4px"><b>Focus:</b> ' + esc(l.focus) + '</div>' : '') + '</div></div>' + list("Lesson plan", plan) + list("Homework", hw) + (l.recap ? '<h3 style="margin-top:10px">Recap</h3><div class="recap">' + esc(l.recap) + '</div>' : '') + '</div>';
+    }
+    box.innerHTML = '<h2>Coming up</h2>' + (up.length ? up.map(card).join("") : '<div class="card empty">No lessons scheduled.</div>') +
+      (past.length ? '<h2>Past lessons</h2>' + past.slice(0, 30).map(card).join("") : "");
+  });
+}
+
+function notesTab(id, box) {
+  return api("notes?student_id=eq." + id + "&order=note_date.desc&select=*").then(function (ns) {
+    box.innerHTML = ns.length ? ns.map(function (n) {
+      return '<div class="card"><h3>' + esc(n.title) + '</h3><div class="muted small">' + fmtDate(n.note_date) + '</div><div style="margin-top:8px">' + rich(n.summary) + '</div>' +
+        (n.highlights ? '<h3 style="margin-top:10px">Highlights</h3><div>' + rich(n.highlights) + '</div>' : '') +
+        (n.next_focus ? '<h3 style="margin-top:10px">Next focus</h3><div>' + rich(n.next_focus) + '</div>' : '') +
+        ((n.homework || []).length ? '<h3 style="margin-top:10px">Homework</h3><ul class="plan">' + n.homework.map(function (h) { return '<li>' + esc(h) + '</li>'; }).join("") + '</ul>' : '') + '</div>';
+    }).join("") : '<div class="card empty">No notes yet.</div>';
+  });
+}
+
+function clipsTab(id, box) {
+  return api("media?student_id=eq." + id + "&order=created_at.desc&select=*").then(function (ms) {
+    if (!ms.length) { box.innerHTML = '<div class="card empty">No clips or links yet.</div>'; return; }
+    box.innerHTML = '<div class="media">' + ms.map(function (m, i) {
+      var icon = m.kind === "clip" ? "&#9654;" : m.kind === "youtube" ? "&#9654;" : "&#8599;";
+      return '<button class="tile" data-i="' + i + '"><div class="th" id="th' + i + '">' + icon + '</div><div class="tx"><h3>' + esc(m.title) + '</h3><div class="muted small">' + esc(m.skill) + (m.duration ? ' &middot; ' + esc(m.duration) : '') + ' &middot; ' + fmtDate(m.created_at, { month: "short", day: "numeric" }) + '</div></div></button>';
+    }).join("") + '</div>';
+    ms.forEach(function (m, i) { if (m.thumb_path) signedUrl(m.thumb_path).then(function (u) { var el = $("#th" + i); if (u && el) { el.style.backgroundImage = "url('" + u + "')"; el.innerHTML = ""; } }); });
+    box.onclick = function (e) {
+      var t = e.target.closest(".tile"); if (!t) return;
+      var m = ms[+t.dataset.i];
+      if (m.kind === "instagram") { window.open(m.link, "_blank", "noopener"); return; }
+      var mod = document.createElement("div"); mod.className = "modal";
+      mod.innerHTML = '<div class="box"><div id="pl"><p class="empty">Loading...</p></div><h3 style="margin-top:10px">' + esc(m.title) + '</h3>' + (m.note ? '<p>' + rich(m.note) + '</p>' : '') + '<button class="btn ghost" id="x">Close</button></div>';
+      document.body.appendChild(mod);
+      var close = function () { mod.remove(); }; mod.onclick = function (ev) { if (ev.target === mod) close(); }; $("#x", mod).onclick = close;
+      if (m.kind === "youtube" && m.youtube_id) $("#pl", mod).innerHTML = '<iframe src="https://www.youtube-nocookie.com/embed/' + encodeURIComponent(m.youtube_id) + '" allow="encrypted-media; picture-in-picture" allowfullscreen></iframe>';
+      else signedUrl(m.video_path).then(function (u) {
+        $("#pl", mod).innerHTML = u ? '<video controls playsinline autoplay src="' + esc(u) + '"></video>' : '<p class="err">This video is not available.</p>';
+      });
+    };
+  });
+}
+
+function progressTab(id, box) {
+  return api("progress?student_id=eq." + id + "&select=*").then(function (ps) {
+    box.innerHTML = ps.length ? ps.map(function (p) {
+      var pct = Math.round(Math.max(0, Math.min(1, p.level)) * 100);
+      return '<div class="card"><div class="row" style="justify-content:space-between"><h3>' + esc(p.skill) + '</h3><b>' + pct + '%</b></div><div class="bar"><i style="width:' + pct + '%"></i></div>' + (p.comment ? '<div class="muted small" style="margin-top:6px">' + esc(p.comment) + '</div>' : '') + '</div>';
+    }).join("") : '<div class="card empty">No skill progress yet.</div>';
+  });
+}
+
+function tournTab(id, box) {
+  return api("tournaments?student_id=eq." + id + "&order=event_date.asc&select=*").then(function (ts) {
+    box.innerHTML = ts.length ? ts.map(function (t) {
+      return '<div class="card"><h3>' + esc(t.name) + '</h3><div class="muted small">' + fmtDate(t.event_date) + (t.location ? ' &middot; ' + esc(t.location) : '') + (t.level ? ' &middot; ' + esc(t.level) : '') + '</div>' + (t.note ? '<p>' + rich(t.note) + '</p>' : '') + (/^https?:\/\//.test(t.link) ? '<a href="' + esc(t.link) + '" target="_blank" rel="noopener">Tournament page</a>' : '') + '</div>';
+    }).join("") : '<div class="card empty">No tournaments yet.</div>';
+  });
+}
+
+function chatTab(s, box) {
+  box.innerHTML = '<div class="chat" id="chat"></div><div class="compose"><input id="txt" placeholder="Message" autocomplete="off"><button class="btn" id="send">Send</button></div>';
+  var shown = {}, first = true;
+  function load() {
+    return api("messages?student_id=eq." + s.id + "&order=created_at.asc&select=*").then(function (ms) {
+      var c = $("#chat"); if (!c) return;
+      var nearBottom = first || (window.innerHeight + window.scrollY >= document.body.scrollHeight - 120), added = false;
+      ms.forEach(function (m) {
+        if (shown[m.id]) return; shown[m.id] = 1; added = true;
+        var me = m.author_id === S.session.user.id, d = document.createElement("div");
+        d.className = "msg" + (me ? " me" : ""); d.innerHTML = '<small>' + esc(m.author_name) + ' &middot; ' + fmtDate(m.created_at, { month: "short", day: "numeric" }) + ' ' + fmtTime(m.created_at) + '</small>' + esc(m.body);
+        c.appendChild(d);
+      });
+      if (!ms.length && first) c.innerHTML = '<div class="empty">No messages yet. Say hi.</div>';
+      if (added && c.querySelector(".empty")) c.querySelector(".empty").remove();
+      if (added && nearBottom) window.scrollTo(0, document.body.scrollHeight);
+      first = false;
+    });
+  }
+  function send() {
+    var t = $("#txt"), v = t.value.trim(); if (!v) return;
+    t.value = "";
+    api("messages", { json: { student_id: s.id, author_id: S.session.user.id, author_name: S.profile.display_name || "Me", author_role: S.profile.role === "coach" ? "coach" : "parent", body: v }, prefer: "return=minimal" })
+      .then(load).catch(function (e) { t.value = v; alert(e.message); });
+  }
+  $("#send").onclick = send; $("#txt").onkeydown = function (e) { if (e.key === "Enter") send(); };
+  chatTimer = setInterval(function () { load().catch(function () {}); }, 4000);
+  return load();
+}
+
+/* ---------- coach day planner ---------- */
+var calDay = startOfDay(new Date());
+function calView() {
+  var ds = new Date(calDay), de = new Date(calDay); de.setDate(de.getDate() + 1);
+  app.innerHTML = shell('<div class="daynav"><button class="pill" id="prev">&larr;</button><button class="pill" id="today">Today</button><button class="pill" id="next">&rarr;</button><span class="sp"></span><b>' + fmtDate(calDay, { weekday: "long", month: "long", day: "numeric" }) + '</b></div><div id="sum" class="muted small"></div><div id="pl"><p class="empty">Loading...</p></div>');
+  $("#prev").onclick = function () { calDay.setDate(calDay.getDate() - 1); calView(); };
+  $("#next").onclick = function () { calDay.setDate(calDay.getDate() + 1); calView(); };
+  $("#today").onclick = function () { calDay = startOfDay(new Date()); calView(); };
+  api("lessons?start_at=gte." + ds.toISOString() + "&start_at=lt." + de.toISOString() + "&order=start_at.asc&select=*,lesson_students(student_id)").then(function (ls) {
+    var mins = ls.reduce(function (a, l) { return a + l.minutes; }, 0);
+    $("#sum").textContent = ls.length ? ls.length + (ls.length === 1 ? " lesson" : " lessons") + ", " + Math.floor(mins / 60) + "h " + (mins % 60) + "m on court" : "Nothing scheduled";
+    var H = 64, first = 7, last = 20;
+    ls.forEach(function (l) { first = Math.min(first, new Date(l.start_at).getHours()); last = Math.max(last, new Date(new Date(l.start_at).getTime() + l.minutes * 60000).getHours() + 1); });
+    var rows = ""; for (var h = first; h <= last; h++) rows += '<div class="hr" style="height:' + H + 'px"><span>' + ((h % 12) || 12) + " " + (h < 12 ? "AM" : "PM") + '</span></div>';
+    // overlap columns
+    var placed = [], cluster = [], cend = 0;
+    function flush() { var n = cluster.reduce(function (a, c) { return Math.max(a, c.col + 1); }, 1); cluster.forEach(function (c) { c.n = n; placed.push(c); }); cluster = []; }
+    ls.forEach(function (l) {
+      var st = new Date(l.start_at).getTime(), en = st + l.minutes * 60000;
+      if (st >= cend) flush();
+      var col = 0; while (cluster.some(function (c) { return c.col === col && c.end > st; })) col++;
+      cluster.push({ l: l, col: col, end: en }); cend = Math.max(cend, en);
+    }); flush();
+    var blocks = placed.map(function (p) {
+      var d = new Date(p.l.start_at), top = ((d.getHours() - first) * 60 + d.getMinutes()) / 60 * H + 6, ht = Math.max(p.l.minutes / 60 * H - 3, 28);
+      var ids = (p.l.lesson_students || []).map(function (x) { return x.student_id; });
+      var names = ids.map(function (i) { var s = studentById(i); return s ? s.name : ""; }).filter(Boolean).join(", ");
+      var col = colorOf(ids[0]);
+      var w = "calc((100% - 62px) / " + p.n + ")";
+      return '<a class="blk" href="#/s/' + ids[0] + '/schedule" style="top:' + top + 'px;height:' + ht + 'px;width:' + w + ';left:calc(58px + (100% - 62px) / ' + p.n + ' * ' + p.col + ');border-color:' + col + ';background:' + col + '22"><b>' + esc(names || p.l.kind) + '</b>' + (ht > 44 ? esc(p.l.kind) + ", " + fmtTime(d) : "") + (ht > 62 && p.l.location ? '<br>' + esc(p.l.location) : "") + '</a>';
+    }).join("");
+    var nowLine = "";
+    if (sameDay(calDay, new Date())) { var n = new Date(); var t = ((n.getHours() - first) * 60 + n.getMinutes()) / 60 * H + 6; if (t > 0) nowLine = '<div class="now" style="top:' + t + 'px"></div>'; }
+    $("#pl").innerHTML = '<div class="planner">' + rows + blocks + nowLine + '</div>' + (ls.length ? "" : '<p class="empty">Open day.</p>');
+  }).catch(function (e) { $("#pl").innerHTML = '<p class="err">' + esc(e.message) + '</p>'; });
+}
+
+/* ---------- start ---------- */
+if (S.session) boot(); else render();
+</script>
+</body>
+</html>
