@@ -124,6 +124,10 @@
   nav.foot { margin-top:40px; font-size:13px; color:var(--muted); text-align:center; }
   @media (max-width:520px) { .tiles { gap:8px; } .ag .tm { width:54px; } }
 @media print { .top, .tabs, .foot, .hub .t1 .circ, .noprint, .banner, .sw { display: none !important; } body { background: #fff; } }
+.chip.owes { background: rgba(217,130,43,.2); color: #b9651a; margin-left: 6px; }
+.pbadge { display:inline-block; font-size:12px; font-weight:800; padding:3px 10px; border-radius:999px; }
+.pchips button { font:inherit; font-size:12px; font-weight:700; border:1px solid #d9ddd8; background:#fff; border-radius:999px; padding:4px 10px; margin:4px 4px 0 0; cursor:pointer; }
+.hist { display:flex; justify-content:space-between; gap:10px; align-items:center; padding:12px; background:#fff; border-radius:12px; margin:6px 0; }
 </style>
 </head>
 <body>
@@ -149,7 +153,7 @@ function rich(t) { // bold and bullets from the app's notes
 function markLines(t) { return String(t || "").replace(/\*\*(.+?)\*\*/g, "$1"); }
 
 /* ---------- session and API ---------- */
-var S = { session: null, profile: null, students: [], lessons: [], notes: [], tourn: [], coaches: {}, requests: [], joins: [], coachCode: "", cache: {}, signed: {} };
+var S = { session: null, profile: null, students: [], lessons: [], notes: [], tourn: [], coaches: {}, requests: [], joins: [], charges: [], payments: [], lessonPays: [], rates: [], payInfos: [], coachCode: "", cache: {}, signed: {} };
 try { S.session = JSON.parse(localStorage.getItem("sidebar.web.session") || "null"); } catch (e) {}
 function saveSession(s) {
   S.session = s;
@@ -186,7 +190,7 @@ function api(path, opts) { return refresh().then(function () { return raw("/rest
 function signIn(email, pw) {
   return raw("/auth/v1/token?grant_type=password", { json: { email: email, password: pw }, auth: false }).then(function (j) { saveSession(toSession(j)); });
 }
-function signOut() { saveSession(null); S.profile = null; S.students = []; S.lessons = []; S.notes = []; S.tourn = []; S.coaches = {}; S.requests = []; S.joins = []; S.coachCode = ""; S.cache = {}; location.hash = "#/"; render(); }
+function signOut() { saveSession(null); S.profile = null; S.students = []; S.lessons = []; S.notes = []; S.tourn = []; S.coaches = {}; S.requests = []; S.joins = []; S.charges = []; S.payments = []; S.lessonPays = []; S.rates = []; S.payInfos = []; S.coachCode = ""; S.cache = {}; location.hash = "#/"; render(); }
 
 /* ---------- views ---------- */
 var app = $("#app");
@@ -288,7 +292,7 @@ function boot() {
     var ck = {}; x[4].forEach(function (c) { ck[c.lesson_id + "|" + String(c.item_id).toLowerCase()] = c.done; });
     S.lessons.forEach(function (l) { (l.items || []).forEach(function (i) { var k = l.id + "|" + String(i.id).toLowerCase(); if (k in ck) i.done = ck[k]; }); });
     S.requests = x[5]; S.joins = x[6];
-    render();
+    return loadMoney().then(render);
   }).catch(function (e) { saveSession(null); authView("signin", e.message); });
 }
 function studentById(id) { return S.students.filter(function (s) { return s.id === id; })[0]; }
@@ -316,6 +320,7 @@ function render() {
   var h2 = location.hash.replace(/^#\/?/, "").split("/");
   if (h2[0] === "s" && h2[1]) return studentView(h2[1], h2[2] || "lessons");
   if (h2[0] === "cal") return calView();
+  if (h2[0] === "money" && S.profile.role === "coach") return moneyView();
   if (h2[0] === "signup") return signupView();
   return homeView();
 }
@@ -341,6 +346,7 @@ var IC = {
   back: '<path d="M15 5l-7 7 7 7"/>',
   repeat: '<path d="M17 2l3 3-3 3M4 11V9a4 4 0 0 1 4-4h12M7 22l-3-3 3-3M20 13v2a4 4 0 0 1-4 4H4"/>',
   lock: '<path d="M6 11h12v9H6zM8 11V8a4 4 0 0 1 8 0v3"/>',
+  dollar: '<circle cx="12" cy="12" r="9"/><path d="M14.5 9.2c-.4-.8-1.3-1.2-2.5-1.2-1.5 0-2.5.8-2.5 1.9 0 2.7 5 1.3 5 4 0 1.1-1.1 1.9-2.5 1.9-1.3 0-2.3-.5-2.7-1.4M12 6.5V8m0 8v1.5"/>',
   list: '<path d="M9 6h11M9 12h11M9 18h11M4 6h.01M4 12h.01M4 18h.01"/>'
 };
 function ico(n, s) { return '<svg class="ic" width="' + (s || 18) + '" height="' + (s || 18) + '" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">' + IC[n] + '</svg>'; }
@@ -392,11 +398,12 @@ function homeView() {
     var nx = S.lessons.filter(function (l) { return !isPast(l); })[0];
     var nxt = nx ? new Date(nx.start_at).toLocaleDateString(undefined, { weekday: "short" }) + " " + fmtTime(nx.start_at) : "None";
     html += '<div class="tiles"><div class="tile2"><b>' + joined + '</b><span>Students</span></div><div class="tile2"><b>' + waiting + '</b><span>Invited</span></div><a class="tile2" href="#/cal"><b>' + esc(nxt) + '</b><span>Next lesson</span></a></div>';
+    html += '<a class="card" href="#/money" style="display:block;text-decoration:none;color:inherit;margin-top:12px"><div class="row" style="justify-content:space-between"><b style="color:var(--court)">' + ico("dollar", 18) + ' Money</b><span class="chev">' + ico("chev", 14) + '</span></div><div class="row" style="gap:22px;margin-top:8px"><div><div style="font-weight:800;font-size:20px;color:' + (owedTotal() > 0 ? "#d9822b" : "inherit") + '">' + $d(owedTotal()) + '</div><div class="small muted">Owed to you</div></div><div><div style="font-weight:800;font-size:20px">' + $d(receivedSince(monthStart())) + '</div><div class="small muted">This month</div></div><div><div style="font-weight:800;font-size:20px">' + $d(receivedSince(yearStart())) + '</div><div class="small muted">This year</div></div></div></a>';
     html += '<div class="grid" style="margin-top:12px">' + S.students.map(function (s) {
       var body = s.claimed
         ? '<hr class="dv">' + infoRow("calendar", nextText(s.id)) + infoRow("note", noteText(s.id)) + infoRow("trophy", tournText(s.id)) + (s.utr_rating ? infoRow("trend", "UTR " + s.utr_rating) : "")
         : '<div class="small muted" style="margin-top:12px">Not joined yet. Everything you add in the app shows up when the family joins.</div>';
-      return '<a class="card sc" href="#/s/' + s.id + '/lessons"><div class="row c"><div class="av">' + esc(s.name.charAt(0).toUpperCase()) + '</div><div class="grow"><div class="hd">' + esc(s.name) + '</div><div class="sub">Age ' + esc(s.age) + ', ' + esc(s.level) + '</div></div>' + (s.claimed ? "" : '<span class="chip">Invited</span>') + '</div>' + body + '</a>';
+      return '<a class="card sc" href="#/s/' + s.id + '/lessons"><div class="row c"><div class="av">' + esc(s.name.charAt(0).toUpperCase()) + '</div><div class="grow"><div class="hd">' + esc(s.name) + '</div><div class="sub">Age ' + esc(s.age) + ', ' + esc(s.level) + '</div></div>' + (s.claimed ? "" : '<span class="chip">Invited</span>') + (balanceOf(s.id) > 0 ? '<span class="chip owes">Owes ' + $d(balanceOf(s.id)) + '</span>' : "") + '</div>' + body + '</a>';
     }).join("") + '</div>';
   } else {
     var byCoach = {};
@@ -569,7 +576,7 @@ function openLesson(l) {
     (l.location ? '<div class="small muted" style="display:flex;gap:5px;align-items:center;margin-top:2px">' + ico("pin", 13) + esc(l.location) + '</div>' : "") +
     (names.length ? '<div class="small" style="font-weight:600;margin-top:2px">' + esc(names.join(", ")) + '</div>' : "") +
     (l.focus ? '<div style="margin-top:6px"><span class="tag">Focus: ' + esc(l.focus) + '</span></div>' : "") + '</div></div>' +
-    checklist("Lesson plan", planOf(l)) + checklist("Homework", hwOf(l)) +
+    payBlock(l) + checklist("Lesson plan", planOf(l)) + checklist("Homework", hwOf(l)) +
     (l.recap ? '<h3 style="margin-top:14px">Recap</h3><div class="recap">' + esc(l.recap) + '</div>' : "") +
     (notes.length ? '<h3 style="margin-top:14px">Lesson notes from this day</h3>' + notes.map(function (n) { return '<div style="margin:6px 0"><b>' + esc(n.title) + '</b><div class="small muted">' + esc(plain(n.summary).slice(0, 220)) + '</div></div>'; }).join("") : "") +
     '<div class="cerr err small"></div>' +
@@ -578,6 +585,8 @@ function openLesson(l) {
   mod.addEventListener("click", function (e) {
     var li = e.target.closest("li[data-i]"); if (li) return toggleCheck(l, li.dataset.i, li, mod);
     if (e.target.id === "ics") return downloadICS(l);
+    var ps = e.target.closest("[data-ps]");
+    if (ps) { ps.disabled = true; return setLessonPay(l, ps.dataset.sid, ps.dataset.ps).then(function () { var b = $("#paybox", mod); if (b) b.outerHTML = payBlock(l); }).catch(function (er) { alert(er.message); }); }
     if (e.target.id === "rq") {
       $("#rqf", mod).innerHTML = '<div class="seg"><button data-k="cancel" class="on">Can\'t make it</button><button data-k="reschedule">Move it</button></div><div id="when" style="display:none"><input id="rw" type="datetime-local"></div><textarea id="rn" rows="2" placeholder="Note for your coach (optional)"></textarea><div id="rm" class="err small"></div><button class="btn" id="rs">Send request</button>';
       e.target.style.display = "none"; return;
@@ -595,8 +604,176 @@ function openLesson(l) {
   });
 }
 
+
+/* ---------- money ---------- */
+function $d(c) { c = Math.round(c || 0); return c % 100 === 0 ? "$" + (c / 100) : "$" + (c / 100).toFixed(2); }
+function toCents(t) { var n = parseFloat(String(t).replace(/[^0-9.]/g, "")); return isNaN(n) ? 0 : Math.round(n * 100); }
+function dayStr(d) { d = d || new Date(); return d.getFullYear() + "-" + ("0" + (d.getMonth() + 1)).slice(-2) + "-" + ("0" + d.getDate()).slice(-2); }
+function prettyDay(t) { var p = String(t).split("-"); if (p.length < 3) return t; return new Date(+p[0], +p[1] - 1, +p[2]).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" }); }
+function monthStart() { var n = new Date(); return dayStr(new Date(n.getFullYear(), n.getMonth(), 1)); }
+function yearStart() { return dayStr(new Date(new Date().getFullYear(), 0, 1)); }
+function newId() { return (window.crypto && crypto.randomUUID) ? crypto.randomUUID() : "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, function (c) { var r = Math.random() * 16 | 0; return (c === "x" ? r : (r & 3 | 8)).toString(16); }); }
+function loadMoney() {
+  var soft = function (p) { return p.catch(function () { return null; }); };
+  return Promise.all([soft(api("charges?select=*&order=created_at.asc&limit=2000")), soft(api("payments?select=*&order=paid_on.desc&limit=3000")), soft(api("lesson_pay?select=*&limit=5000")), soft(api("coach_pay_info?select=*&limit=20")), soft(api("rate_cards?select=*&order=created_at.asc&limit=200"))]).then(function (r) {
+    if (r[0]) S.charges = r[0]; if (r[1]) S.payments = r[1]; if (r[2]) S.lessonPays = r[2]; if (r[3]) S.payInfos = r[3]; if (r[4]) S.rates = r[4];
+  });
+}
+function chargesOf(id) { return S.charges.filter(function (c) { return c.student_id === id; }); }
+function paymentsOf(id) { return S.payments.filter(function (p) { return p.student_id === id; }); }
+function sum(a, f) { return a.reduce(function (t, x) { return t + (f(x) || 0); }, 0); }
+function balanceOf(id) { return sum(chargesOf(id), function (c) { return c.amount_cents; }) - sum(paymentsOf(id), function (p) { return p.amount_cents; }); }
+function paidMap(id) {
+  var cs = chargesOf(id).slice().sort(function (a, b) { return a.created_at < b.created_at ? -1 : 1; }), cov = {}, loose = 0;
+  paymentsOf(id).forEach(function (p) { if (p.charge_id && cs.some(function (c) { return c.id === p.charge_id; })) cov[p.charge_id] = (cov[p.charge_id] || 0) + p.amount_cents; else loose += p.amount_cents; });
+  cs.forEach(function (c) { var h = cov[c.id] || 0; if (h > c.amount_cents) { loose += h - c.amount_cents; cov[c.id] = c.amount_cents; } });
+  cs.forEach(function (c) { var need = c.amount_cents - (cov[c.id] || 0); if (need > 0 && loose > 0) { var u = Math.min(need, loose); cov[c.id] = (cov[c.id] || 0) + u; loose -= u; } });
+  return cov;
+}
+function openCharges(id) { var m = paidMap(id); return chargesOf(id).filter(function (c) { return (m[c.id] || 0) < c.amount_cents; }); }
+function isPkg(c) { return c.kind === "package" && (c.lessons_total || 0) > 0; }
+function lessonsLeft(c) { return Math.max(0, (c.lessons_total || 0) - (c.lessons_used || 0)); }
+function activePackage(id) { var t = dayStr(); return chargesOf(id).filter(function (c) { return isPkg(c) && lessonsLeft(c) > 0 && (!c.expires_on || c.expires_on >= t); }).sort(function (a, b) { return a.created_at < b.created_at ? -1 : 1; })[0]; }
+function owedList() { return S.students.map(function (s) { return { s: s, c: balanceOf(s.id) }; }).filter(function (x) { return x.c > 0; }).sort(function (a, b) { return b.c - a.c; }); }
+function owedTotal() { return sum(owedList(), function (x) { return x.c; }); }
+function receivedSince(day) { return sum(S.payments.filter(function (p) { return p.paid_on >= day; }), function (p) { return p.amount_cents; }); }
+function myPayInfo() { var me = S.session && S.session.user.id; return S.payInfos.filter(function (i) { return i.coach_id === me; })[0] || S.payInfos[0] || null; }
+var METHODS = { zelle: "Zelle", venmo: "Venmo", cash: "Cash", check: "Check", club: "Paid by club", other: "Other" };
+var PSTAT = { unpaid: ["Unpaid", "#d9822b"], paid: ["Paid", "#1d9a5b"], package: ["Package", "#2f6fd6"], club: ["Club paid", "#7c4dbd"], comp: ["Free", "#7d857f"] };
+function reminderText(id) {
+  var s = studentById(id), i = myPayInfo(), open = openCharges(id), t = "Hey " + (s.parent_name || "there") + ", quick reminder from Coach " + (S.profile.display_name || "") + ". " + s.name + " has " + $d(balanceOf(id)) + " open.";
+  if (open.length) t += " " + open.map(function (c) { return c.title + " " + $d(c.amount_cents); }).join(", ");
+  if (i) { var how = []; if (i.zelle) how.push("Zelle " + i.zelle); if (i.venmo) how.push("Venmo " + i.venmo); if (how.length) t += " You can pay by " + how.join(" or ") + "."; if (i.note) t += " " + i.note; }
+  return t + " Thanks!";
+}
+function sendReminder(id) {
+  var me = S.session.user.id;
+  return api("messages", { json: { student_id: id, author_id: me, author_name: S.profile.display_name || "Coach", author_role: "coach", body: reminderText(id) }, prefer: "return=minimal" }).then(function () {
+    var now = new Date().toISOString();
+    return Promise.all(openCharges(id).map(function (c) { c.last_reminded_at = now; return api("charges?id=eq." + c.id, { method: "PATCH", json: { last_reminded_at: now }, prefer: "return=minimal" }); }));
+  });
+}
+function patchCharge(c, fields) { Object.keys(fields).forEach(function (k) { c[k] = fields[k]; }); return api("charges?id=eq." + c.id, { method: "PATCH", json: fields, prefer: "return=minimal" }); }
+function lessonPayOf(l, sid) { return S.lessonPays.filter(function (r) { return r.lesson_id === l.id && r.student_id === sid; })[0]; }
+function payStatusFor(l, sid) {
+  var r = lessonPayOf(l, sid); if (r) return r.status;
+  return (S.profile.role === "coach" && isPast(l)) ? "unpaid" : null;
+}
+function setLessonPay(l, sid, status) {
+  var old = lessonPayOf(l, sid), chain = Promise.resolve(), chargeId = null;
+  if (old && old.status === "package" && old.charge_id) { var oc = S.charges.filter(function (c) { return c.id === old.charge_id; })[0]; if (oc) chain = chain.then(function () { return patchCharge(oc, { lessons_used: Math.max(0, (oc.lessons_used || 0) - 1) }); }); }
+  if (status === "package") { var pk = activePackage(sid); if (pk) { chargeId = pk.id; chain = chain.then(function () { return patchCharge(pk, { lessons_used: (pk.lessons_used || 0) + 1 }); }); } else status = "unpaid"; }
+  var row = { lesson_id: l.id, student_id: sid, coach_id: S.session.user.id, status: status, charge_id: chargeId };
+  return chain.then(function () { return api("lesson_pay", { json: [row], prefer: "resolution=merge-duplicates,return=minimal" }); }).then(function () {
+    S.lessonPays = S.lessonPays.filter(function (r) { return !(r.lesson_id === l.id && r.student_id === sid); }); S.lessonPays.push(row);
+  });
+}
+function settleLessons(sid) {
+  if (balanceOf(sid) > 0) return Promise.resolve();
+  var chain = Promise.resolve();
+  S.lessons.forEach(function (l) { var r = lessonPayOf(l, sid); if (r && r.status === "unpaid") chain = chain.then(function () { return setLessonPay(l, sid, "paid"); }); });
+  return chain;
+}
+function payBlock(l) {
+  var coach = S.profile.role === "coach", ids = sids(l).filter(function (i) { return !!studentById(i); });
+  if (!ids.length) return "";
+  var rows = ids.map(function (sid) {
+    var st = payStatusFor(l, sid), nm = studentById(sid).name, pk = coach ? activePackage(sid) : null;
+    var badge = st ? '<span class="pbadge" style="background:' + PSTAT[st][1] + '22;color:' + PSTAT[st][1] + '">' + PSTAT[st][0] + '</span>' : '<span class="small muted">Not marked yet</span>';
+    var chips = coach ? '<div class="pchips">' + Object.keys(PSTAT).map(function (k) { return '<button data-ps="' + k + '" data-sid="' + sid + '">' + PSTAT[k][0] + '</button>'; }).join("") + '</div>' : "";
+    return '<div style="margin:6px 0">' + (ids.length > 1 ? '<b>' + esc(nm) + '</b> ' : "") + badge + (pk ? ' <span class="small muted">' + lessonsLeft(pk) + ' left in package</span>' : "") + chips + '</div>';
+  }).join("");
+  return '<div id="paybox"><h3 style="margin-top:14px">Payment</h3>' + rows + '</div>';
+}
+
+function moneyTab(id, box) {
+  var coach = S.profile.role === "coach", s = studentById(id);
+  return loadMoney().then(function () {
+    var bal = balanceOf(id), pm = paidMap(id), cs = chargesOf(id).slice().sort(function (a, b) { return a.created_at < b.created_at ? 1 : -1; }), ps = paymentsOf(id);
+    var h = '<div class="card"><div class="small muted" style="font-weight:700">' + (bal > 0 ? "Owed" : bal < 0 ? "Credit" : "All paid up") + '</div><div style="font-size:40px;font-weight:800;color:' + (bal > 0 ? "#d9822b" : "var(--court)") + '">' + (bal === 0 ? "$0" : $d(Math.abs(bal))) + '</div><div class="small muted">Charged ' + $d(sum(cs, function (c) { return c.amount_cents; })) + ' &bull; Paid ' + $d(sum(ps, function (p) { return p.amount_cents; })) + '</div></div>';
+    if (coach) {
+      h += '<div class="row" style="gap:8px"><button class="btn ghost" id="ac" style="margin:0">+ Add charge</button><button class="btn" id="gp" style="margin:0">Got paid</button></div>';
+      if (bal > 0) h += '<button class="btn ghost" id="rm" style="margin-top:8px">Send payment reminder</button><div id="rmm" class="small muted"></div>';
+    } else if (bal > 0) {
+      var i = myPayInfo();
+      h += '<div class="card"><h3>How to pay</h3>' + (i && (i.zelle || i.venmo) ? (i.zelle ? '<div class="row" style="justify-content:space-between;margin:6px 0"><span><b>Zelle</b> ' + esc(i.zelle) + '</span><button class="pill cp" data-v="' + esc(i.zelle) + '">Copy</button></div>' : "") + (i.venmo ? '<div class="row" style="justify-content:space-between;margin:6px 0"><span><b>Venmo</b> ' + esc(i.venmo) + '</span><button class="pill cp" data-v="' + esc(i.venmo) + '">Copy</button></div><a href="https://venmo.com/' + encodeURIComponent(String(i.venmo).replace(/^@/, "")) + '?txn=pay&amount=' + (bal / 100).toFixed(2) + '&note=' + encodeURIComponent("Tennis with " + s.name) + '" target="_blank" rel="noopener">Open Venmo with ' + $d(bal) + '</a>' : "") + (i.note ? '<div class="small muted" style="margin-top:6px">' + esc(i.note) + '</div>' : "") + '<div class="small muted" style="margin-top:6px">After you pay, your coach marks it paid here.</div>' : '<div class="small muted">Ask your coach how they like to be paid.</div>') + '</div>';
+    }
+    var pk = cs.filter(isPkg);
+    if (pk.length) h += '<h2>Packages</h2>' + pk.map(function (c) { var tot = c.lessons_total, paid = (pm[c.id] || 0) >= c.amount_cents; return '<div class="card"><div class="row" style="justify-content:space-between"><b>' + esc(c.title) + '</b><b style="color:var(--court)">' + lessonsLeft(c) + ' of ' + tot + ' left</b></div><div class="bar"><i style="width:' + Math.round((c.lessons_used || 0) / tot * 100) + '%"></i></div><div class="small" style="margin-top:6px"><b style="color:' + (paid ? "#1d9a5b" : "#d9822b") + '">' + (paid ? "Paid" : "Unpaid") + '</b>' + (c.expires_on ? ' <span class="muted">Expires ' + esc(prettyDay(c.expires_on)) + '</span>' : "") + '</div></div>'; }).join("");
+    var rows = [];
+    cs.forEach(function (c) { var paid = (pm[c.id] || 0) >= c.amount_cents; rows.push({ t: c.created_at, h: '<div class="hist"><div><b>' + esc(c.title) + '</b><div class="small muted">Charged ' + esc(prettyDay(String(c.created_at).slice(0, 10))) + '</div></div><div style="text-align:right"><b style="color:' + (paid ? "#1d9a5b" : "#d9822b") + '">' + $d(c.amount_cents) + '</b><div class="small" style="font-weight:800;color:' + (paid ? "#1d9a5b" : "#d9822b") + '">' + (paid ? "Paid" : "Unpaid") + '</div></div></div>' }); });
+    ps.forEach(function (p) { rows.push({ t: p.paid_on, h: '<div class="hist"><div><b>Payment, ' + esc(METHODS[p.method] || "Other") + '</b><div class="small muted">' + esc(prettyDay(p.paid_on)) + (p.note ? " &bull; " + esc(p.note) : "") + '</div></div><b style="color:#1d9a5b">+' + $d(p.amount_cents) + '</b></div>' }); });
+    rows.sort(function (a, b) { return a.t < b.t ? 1 : -1; });
+    h += '<h2>History</h2>' + (rows.length ? rows.map(function (r) { return r.h; }).join("") : '<div class="card empty">' + (coach ? "Nothing yet. Add a charge when a family signs up for a program or package." : "Nothing yet. Your coach will add charges and payments here.") + '</div>');
+    box.innerHTML = h;
+    box.onclick = function (e) {
+      var cp = e.target.closest(".cp"); if (cp) { (navigator.clipboard ? navigator.clipboard.writeText(cp.dataset.v) : Promise.reject()).then(function () { cp.textContent = "Copied"; }, function () {}); return; }
+      if (e.target.id === "ac") return chargeForm(s, function () { moneyTab(id, box); });
+      if (e.target.id === "gp") return paymentForm(s, function () { moneyTab(id, box); });
+      if (e.target.id === "rm") { e.target.disabled = true; sendReminder(id).then(function () { $("#rmm").textContent = "Reminder sent in chat."; }).catch(function (er) { $("#rmm").textContent = er.message; e.target.disabled = false; }); }
+    };
+  });
+}
+
+function chargeForm(s, done) {
+  var rates = S.rates.map(function (r) { return '<button data-r="' + r.id + '">' + esc(r.name) + " " + $d(r.amount_cents) + '</button>'; }).join("");
+  var mod = openModal('<h3>Add charge for ' + esc(s.name) + '</h3>' + (rates ? '<div class="small muted">Start from one of your rates</div><div class="pchips">' + rates + '</div>' : "") +
+    '<select id="ck"><option value="monthly">Monthly program</option><option value="drop_in">Drop in</option><option value="package">Lesson package</option><option value="one_off">One off</option></select>' +
+    '<input id="ct" placeholder="Name, like Elite B&T October"><input id="ca" inputmode="decimal" placeholder="Amount, like 600">' +
+    '<div id="cl" style="display:none"><input id="cn" inputmode="numeric" placeholder="Lessons in the package" value="10"><label class="small muted">Expires (optional)</label><input id="ce" type="date"></div>' +
+    '<label class="small muted">Due date (optional)</label><input id="cd" type="date"><div id="cm" class="err small"></div><button class="btn" id="cs">Save charge</button><div class="small muted">Only you and this player\'s family can see this. Other families never see it.</div>');
+  var sync = function () { $("#cl", mod).style.display = $("#ck", mod).value === "package" ? "block" : "none"; };
+  $("#ck", mod).onchange = sync;
+  mod.addEventListener("click", function (e) {
+    var rb = e.target.closest("[data-r]"); if (rb) { var r = S.rates.filter(function (x) { return x.id === rb.dataset.r; })[0]; $("#ck", mod).value = r.kind; $("#ct", mod).value = r.name; $("#ca", mod).value = String(r.amount_cents / 100); if (r.lessons) $("#cn", mod).value = r.lessons; sync(); return; }
+    if (e.target.id !== "cs") return;
+    var cents = toCents($("#ca", mod).value); if (cents <= 0) { $("#cm", mod).textContent = "Add an amount."; return; }
+    var kind = $("#ck", mod).value, row = { id: newId(), coach_id: S.session.user.id, student_id: s.id, kind: kind, title: $("#ct", mod).value.trim() || METHODS.other && ({ monthly: "Monthly program", drop_in: "Drop in", package: "Lesson package", one_off: "One off" })[kind], amount_cents: cents, lessons_total: kind === "package" ? (parseInt($("#cn", mod).value, 10) || null) : null, lessons_used: 0, expires_on: kind === "package" && $("#ce", mod).value ? $("#ce", mod).value : null, due_on: $("#cd", mod).value || null, created_at: new Date().toISOString() };
+    e.target.disabled = true;
+    api("charges", { json: [row], prefer: "return=minimal" }).then(function () { S.charges.push(row); mod.remove(); done(); }).catch(function (er) { $("#cm", mod).textContent = er.message; e.target.disabled = false; });
+  });
+}
+
+function paymentForm(s, done) {
+  var open = openCharges(s.id), bal = balanceOf(s.id);
+  var mod = openModal('<h3>Got paid by ' + esc(s.name) + '\'s family</h3><input id="pa" inputmode="decimal" placeholder="Amount" value="' + (bal > 0 ? (bal / 100) : "") + '">' +
+    '<select id="pm">' + Object.keys(METHODS).map(function (k) { return '<option value="' + k + '">' + METHODS[k] + '</option>'; }).join("") + '</select><input id="pd" type="date" value="' + dayStr() + '">' +
+    (open.length ? '<select id="pc"><option value="">Applies to oldest open charge</option>' + open.map(function (c) { return '<option value="' + c.id + '">' + esc(c.title) + '</option>'; }).join("") + '</select>' : "") +
+    '<input id="pn" placeholder="Note (optional)"><div id="pe" class="err small"></div><button class="btn" id="ps2">Save payment</button>');
+  mod.addEventListener("click", function (e) {
+    if (e.target.id !== "ps2") return;
+    var cents = toCents($("#pa", mod).value); if (cents <= 0) { $("#pe", mod).textContent = "Add an amount."; return; }
+    var row = { id: newId(), coach_id: S.session.user.id, student_id: s.id, charge_id: ($("#pc", mod) && $("#pc", mod).value) || null, amount_cents: cents, method: $("#pm", mod).value, paid_on: $("#pd", mod).value || dayStr(), note: $("#pn", mod).value.trim(), created_at: new Date().toISOString() };
+    e.target.disabled = true;
+    api("payments", { json: [row], prefer: "return=minimal" }).then(function () { S.payments.unshift(row); return settleLessons(s.id); }).then(function () { mod.remove(); done(); }).catch(function (er) { $("#pe", mod).textContent = er.message; e.target.disabled = false; });
+  });
+}
+
+/* Coach money screen: who owes, money in, Venmo and Zelle, rates */
+function moneyView() {
+  app.innerHTML = shell('<div class="hhead"><a class="small" href="#/">&larr; Back</a><h1>Money</h1></div><div id="mv"><p class="empty">Loading...</p></div>');
+  loadMoney().then(function () {
+    var owing = owedList(), i = myPayInfo() || {}, ys = yearStart(), by = {};
+    S.payments.filter(function (p) { return p.paid_on >= ys; }).forEach(function (p) { by[p.method] = (by[p.method] || 0) + p.amount_cents; });
+    var h = '<h2>Who owes you</h2>' + (owing.length ? owing.map(function (x) { return '<div class="hist"><div><a href="#/s/' + x.s.id + '/money"><b>' + esc(x.s.name) + '</b></a><div class="small muted">' + esc(openCharges(x.s.id).map(function (c) { return c.title; }).join(", ")) + '</div></div><div style="text-align:right"><b style="color:#d9822b">' + $d(x.c) + '</b><br><button class="pill rem" data-s="' + x.s.id + '">Remind</button></div></div>'; }).join("") : '<div class="card empty">Nobody. You are all caught up.</div>');
+    if (owing.length > 1) h += '<button class="btn ghost" id="remall">Remind everyone who owes</button>';
+    h += '<div id="remm" class="small muted"></div><h2>Money in</h2><div class="card"><div class="row" style="justify-content:space-between"><span>This month</span><b>' + $d(receivedSince(monthStart())) + '</b></div><div class="row" style="justify-content:space-between;margin-top:6px"><span>This year</span><b>' + $d(receivedSince(ys)) + '</b></div>' + Object.keys(by).map(function (k) { return '<div class="row small muted" style="justify-content:space-between;margin-top:4px"><span>' + esc(METHODS[k] || k) + '</span><span>' + $d(by[k]) + '</span></div>'; }).join("") + '</div>';
+    h += '<h2>How families pay you</h2><div class="card"><input id="vv" placeholder="Venmo, like @coachkayvon" value="' + esc(i.venmo || "") + '"><input id="zz" placeholder="Zelle email or phone" value="' + esc(i.zelle || "") + '"><textarea id="nn" rows="2" placeholder="Note for families (optional)">' + esc(i.note || "") + '</textarea><button class="btn" id="svp">Save payment info</button><div id="svm" class="small muted"></div><div class="small muted">Families only see this on their own player\'s Money tab and in reminders you send.</div></div>';
+    h += '<h2>Your rates</h2><div class="card">' + (S.rates.length ? S.rates.map(function (r) { return '<div class="row" style="justify-content:space-between;margin:6px 0"><span><b>' + esc(r.name) + '</b> <span class="small muted">' + esc(({ monthly: "Monthly", drop_in: "Drop in", package: "Package", one_off: "One off" })[r.kind] || "") + (r.lessons ? ", " + r.lessons + " lessons" : "") + '</span></span><span>' + $d(r.amount_cents) + ' <button class="pill delr" data-r="' + r.id + '">Delete</button></span></div>'; }).join("") : '<div class="small muted">No rates yet.</div>') +
+      '<hr class="dv"><input id="rn" placeholder="Name, like Drop in or 10 lesson pack"><div class="row" style="gap:8px"><select id="rk"><option value="drop_in">Drop in</option><option value="monthly">Monthly program</option><option value="package">Lesson package</option><option value="one_off">One off</option></select><input id="ra" inputmode="decimal" placeholder="Price"></div><input id="rl" inputmode="numeric" placeholder="Lessons (packages only)"><button class="btn ghost" id="addr">Add rate</button><div id="rme" class="err small"></div><div class="small muted">Your price list is private. No family or other user can ever see it.</div></div>';
+    $("#mv").innerHTML = h;
+    $("#mv").onclick = function (e) {
+      var rem = e.target.closest(".rem"); if (rem) { rem.disabled = true; return sendReminder(rem.dataset.s).then(function () { rem.textContent = "Sent"; }).catch(function (er) { $("#remm").textContent = er.message; rem.disabled = false; }); }
+      if (e.target.id === "remall") { e.target.disabled = true; return Promise.all(owing.map(function (x) { return sendReminder(x.s.id); })).then(function () { $("#remm").textContent = "Reminders sent in chat."; }); }
+      if (e.target.id === "svp") { var row = { coach_id: S.session.user.id, venmo: $("#vv").value.trim(), zelle: $("#zz").value.trim(), note: $("#nn").value.trim() }; return api("coach_pay_info", { json: [row], prefer: "resolution=merge-duplicates,return=minimal" }).then(function () { S.payInfos = [row]; $("#svm").textContent = "Saved."; }).catch(function (er) { $("#svm").textContent = er.message; }); }
+      var dr = e.target.closest(".delr"); if (dr) return api("rate_cards?id=eq." + dr.dataset.r, { method: "DELETE", prefer: "return=minimal" }).then(function () { S.rates = S.rates.filter(function (r) { return r.id !== dr.dataset.r; }); moneyView(); });
+      if (e.target.id === "addr") { var cents = toCents($("#ra").value), nm = $("#rn").value.trim(); if (!nm || cents <= 0) { $("#rme").textContent = "Add a name and a price."; return; } var k = $("#rk").value, rr = { id: newId(), coach_id: S.session.user.id, name: nm, kind: k, amount_cents: cents, lessons: k === "package" ? (parseInt($("#rl").value, 10) || null) : null }; return api("rate_cards", { json: [rr], prefer: "return=minimal" }).then(function () { S.rates.push(rr); moneyView(); }).catch(function (er) { $("#rme").textContent = er.message; }); }
+    };
+  });
+}
+
 /* ---------- student hub ---------- */
-var TABS = [["clips", "Clips", "video"], ["social", "Social", "link"], ["notes", "Notes", "note"], ["lessons", "Lessons", "calendar"], ["tournaments", "Tournaments", "trophy"], ["progress", "Progress", "chart"], ["chat", "Chat", "chat"]];
+var TABS = [["clips", "Clips", "video"], ["social", "Social", "link"], ["notes", "Notes", "note"], ["lessons", "Lessons", "calendar"], ["tournaments", "Tournaments", "trophy"], ["progress", "Progress", "chart"], ["money", "Money", "dollar"], ["chat", "Chat", "chat"]];
 function studentView(id, tab) {
   var s = studentById(id);
   if (!s) { location.hash = "#/"; return; }
@@ -625,6 +802,7 @@ function studentView(id, tab) {
   else if (tab === "social") mediaTab(id, box, "social").catch(fail);
   else if (tab === "progress") progressTab(id, box).catch(fail);
   else if (tab === "report") reportTab(id, box).catch(fail);
+  else if (tab === "money") moneyTab(id, box).catch(fail);
   else if (tab === "tournaments") tournTab(id, box).catch(fail);
   else if (tab === "chat") chatTab(s, box).catch(fail);
 }
