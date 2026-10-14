@@ -41,6 +41,10 @@
   .hhead { padding:16px 0 4px; }
   .grid { display:grid; gap:12px; grid-template-columns:repeat(auto-fill,minmax(300px,1fr)); } .grid .card { margin:0; }
   .g2 { display:grid; gap:12px; grid-template-columns:repeat(auto-fill,minmax(160px,1fr)); }
+  .fr { display:flex; gap:12px; align-items:flex-start; padding:10px 0; border-top:1px solid var(--line); cursor:pointer; } .fr:first-child { border-top:0; }
+  .fr b { flex:none; white-space:nowrap; } .av.sm { width:36px; height:36px; font-size:15px; flex:none; } .av.out { background:#f5e1cc; color:#d9822b; }
+  select.fm { width:auto; display:inline-block; margin:0 0 0 2px; padding:2px 6px; font-size:12px; border-radius:8px; }
+  a.lk { display:flex; justify-content:space-between; align-items:center; text-decoration:none; color:inherit; padding:8px 0; border-top:1px solid var(--line); } a.lk:first-child { border-top:0; }
   .cards { display:grid; gap:12px; grid-template-columns:1fr 1fr; margin:12px 0; }
   .stat { background:var(--card); border-radius:16px; padding:14px; text-decoration:none; color:inherit; display:block; min-height:112px; }
   .stat.wide { grid-column:1 / -1; min-height:0; }
@@ -333,6 +337,7 @@ function render() {
   if (h2[0] === "cal") return calView();
   if (h2[0] === "money" && S.profile.role === "coach") return moneyView();
   if (h2[0] === "books" && S.profile.role === "coach") return booksView();
+  if (h2[0] === "feed" && S.profile.role === "coach") return feedView(h2[1]);
   if (h2[0] === "recurring" && S.profile.role === "coach") return recurringView();
   if (h2[0] === "signup") return signupView();
   return homeView();
@@ -827,19 +832,92 @@ function paymentForm(s, done) {
   });
 }
 
+/* ---------- transaction feed: every line behind a number ---------- */
+var FEEDMIN = "0000-01-01", FEEDMAX = "9999-12-31";
+function feedItems(from, to, method, withOut) {
+  var items = [];
+  S.payments.forEach(function (p) {
+    if (p.paid_on < from || p.paid_on >= to || (method && p.method !== method)) return;
+    var ch = S.charges.filter(function (c) { return c.id === p.charge_id; })[0];
+    items.push({ k: "p", id: p.id, day: p.paid_on, title: stuName(p.student_id), label: ch ? ch.title : (p.note || "Payment"), tag: ch ? (KINDS[ch.kind] || "Payment") : "Payment", method: p.method, cents: p.amount_cents, out: false, ref: p });
+  });
+  S.otherIncome.forEach(function (o) {
+    if (o.received_on < from || o.received_on >= to || (method && o.method !== method)) return;
+    items.push({ k: "o", id: o.id, day: o.received_on, title: o.source || "Other income", label: o.title || "Club or other income", tag: "Club or other", method: o.method, cents: o.amount_cents, out: false, ref: o });
+  });
+  if (withOut && !method) S.expenses.forEach(function (e) {
+    if (e.spent_on < from || e.spent_on >= to) return;
+    items.push({ k: "e", id: e.id, day: e.spent_on, title: e.vendor || e.category, label: e.note || e.category, tag: "Expense", method: "", cents: e.amount_cents, out: true, ref: e });
+  });
+  return items.sort(function (a, b) { return a.day < b.day ? 1 : a.day > b.day ? -1 : 0; });
+}
+function feedRowHtml(it) {
+  return '<div class="fr" data-k="' + it.k + '" data-id="' + it.id + '"><div class="av sm' + (it.out ? " out" : "") + '">' + esc(String(it.title).charAt(0).toUpperCase()) + '</div><div class="grow"><div style="font-weight:600">' + esc(it.title) + '</div><div class="small muted">' + esc(it.label) + ' <span class="chip">' + esc(it.tag) + '</span></div><div class="small muted">' + esc(prettyDay(it.day)) + (it.out ? "" : ' &middot; <select class="fm" aria-label="How paid">' + opts(METHODS, it.method) + '</select>') + '</div></div><b style="color:' + (it.out ? "#d9822b" : "#1d9a5b") + '">' + (it.out ? "-" : "+") + $d(it.cents) + '</b></div>';
+}
+function feedBind(box, items, again) {
+  if (!box) return;
+  function find(el) { var r = el.closest(".fr"); return r ? items.filter(function (x) { return x.k === r.dataset.k && x.id === r.dataset.id; })[0] : null; }
+  box.onchange = function (e) {
+    if (!e.target.classList.contains("fm")) return;
+    var it = find(e.target); if (!it) return;
+    var f = { method: e.target.value };
+    patchRow(it.k === "p" ? "payments" : "other_income", it.id, f).then(function () { it.ref.method = f.method; again(); }).catch(function (er) { alert(er.message); });
+  };
+  box.onclick = function (e) {
+    if (e.target.closest("select")) return;
+    var it = find(e.target); if (!it) return;
+    if (it.k === "p") editPayment(it.ref, again); else if (it.k === "o") otherForm(it.ref, again); else expenseForm(it.ref, again);
+  };
+}
+function feedSpec(key) {
+  var n = new Date(), y = n.getFullYear(), mo = n.getMonth();
+  var M = [dayStr(new Date(y, mo, 1)), dayStr(new Date(y, mo + 1, 1))], Y = [dayStr(new Date(y, 0, 1)), dayStr(new Date(y + 1, 0, 1))];
+  key = key || "all";
+  if (key === "month-in") return { t: "This month", r: M, f: "in" };
+  if (key === "month-out") return { t: "Spent this month", r: M, f: "out" };
+  if (key === "year-in") return { t: "This year", r: Y, f: "in" };
+  if (key === "year-out") return { t: "Spent this year", r: Y, f: "out" };
+  if (key.indexOf("m-") === 0) { var m = key.slice(2); return { t: METHODS[m] || m, r: Y, f: "in", method: m }; }
+  return { t: "All activity", r: [FEEDMIN, FEEDMAX], f: "all" };
+}
+function feedView(key) {
+  var sp = feedSpec(key), filt = sp.f, q = "";
+  app.innerHTML = shell('<div class="hhead"><a class="small" href="#/money">&larr; Money</a><h1>' + esc(sp.t) + '</h1></div><div id="fv"><p class="empty">Loading...</p></div>');
+  function draw(keepFocus) {
+    var all = feedItems(sp.r[0], sp.r[1], sp.method, true);
+    var items = all.filter(function (x) { return (filt === "all" || (filt === "in" ? !x.out : x.out)) && (!q || (x.title + " " + x.label + " " + x.tag + " " + (METHODS[x.method] || "")).toLowerCase().indexOf(q) >= 0); });
+    var inn = sum(items.filter(function (x) { return !x.out; }), function (x) { return x.cents; }), out = sum(items.filter(function (x) { return x.out; }), function (x) { return x.cents; }), net = inn - out;
+    function col(l, v, c) { return '<div class="mcol"><b style="color:' + c + '">' + $d(v) + '</b><span class="small muted">' + l + '</span></div>'; }
+    $("#fv").innerHTML = (sp.method ? "" : '<div class="seg" id="ff">' + [["all", "All"], ["in", "Money in"], ["out", "Money out"]].map(function (a) { return '<button data-f="' + a[0] + '"' + (a[0] === filt ? ' class="on"' : "") + '>' + a[1] + '</button>'; }).join("") + '</div>') +
+      '<div class="card"><div class="row" style="gap:10px">' + col("In", inn, "#1d9a5b") + col("Out", out, "#d9822b") + col(net >= 0 ? "Kept" : "Short by", Math.abs(net), net >= 0 ? "#1d9a5b" : "var(--danger)") + '</div></div>' +
+      '<input id="fq" placeholder="Search names, programs, Zelle or Venmo" value="' + esc(q) + '"><h2>' + items.length + (items.length === 1 ? " transaction" : " transactions") + '</h2><div class="card" id="fl" style="padding:4px 14px">' + (items.length ? items.map(feedRowHtml).join("") : '<div class="empty">Nothing here yet.</div>') + '</div>';
+    feedBind($("#fl"), items, function () { draw(); });
+    var ff = $("#ff"); if (ff) ff.onclick = function (e) { var b = e.target.closest("[data-f]"); if (b) { filt = b.dataset.f; draw(); } };
+    var qi = $("#fq"); qi.oninput = function () { q = qi.value.trim().toLowerCase(); draw(true); };
+    if (keepFocus) { qi.focus(); qi.setSelectionRange(qi.value.length, qi.value.length); }
+  }
+  loadMoney().then(function () { draw(); });
+}
+
 /* Coach money screen: who owes, money in, Venmo and Zelle, rates */
 function moneyView() {
   app.innerHTML = shell('<div class="hhead"><a class="small" href="#/">&larr; Back</a><h1>Money</h1></div><div id="mv"><p class="empty">Loading...</p></div>');
   loadMoney().then(function () {
-    var owing = owedList(), i = myPayInfo() || {}, ys = yearStart(), by = {};
+    var owing = owedList(), i = myPayInfo() || {}, ys = yearStart(), by = {}, nw = new Date(), mn = dayStr(new Date(nw.getFullYear(), nw.getMonth() + 1, 1)), yn = dayStr(new Date(nw.getFullYear() + 1, 0, 1));
     S.payments.filter(function (p) { return p.paid_on >= ys; }).forEach(function (p) { by[p.method] = (by[p.method] || 0) + p.amount_cents; });
-    var h = '<div class="row" style="gap:8px;flex-wrap:wrap"><button class="btn" id="lg" style="margin:0;flex:1">+ Log money in</button><button class="btn ghost" id="ax" style="margin:0;flex:1">Add expense</button></div><div class="row" style="gap:8px;margin-top:8px"><a class="btn ghost" href="#/books" style="margin:0;flex:1;text-align:center;text-decoration:none">Books and reports</a><a class="btn ghost" href="#/recurring" style="margin:0;flex:1;text-align:center;text-decoration:none">Repeating charges</a></div><h2>Who owes you</h2>' + (owing.length ? owing.map(function (x) { return '<div class="hist"><div><a href="#/s/' + x.s.id + '/money"><b>' + esc(x.s.name) + '</b></a><div class="small muted">' + esc(openCharges(x.s.id).map(function (c) { return c.title; }).join(", ")) + '</div></div><div style="text-align:right"><b style="color:#d9822b">' + $d(x.c) + '</b><br><button class="pill rem" data-s="' + x.s.id + '">Remind</button></div></div>'; }).join("") : '<div class="card empty">Nobody. You are all caught up.</div>');
+    S.otherIncome.filter(function (o) { return o.received_on >= ys; }).forEach(function (o) { by[o.method] = (by[o.method] || 0) + o.amount_cents; });
+    var recent = feedItems(FEEDMIN, FEEDMAX, null, true).slice(0, 8), mOut = bookRange(monthStart(), mn).out, yOut = bookRange(ys, yn).out;
+    function lk(href, label, val) { return '<a class="lk" href="' + href + '"><span>' + label + '</span><b>' + val + ' ' + ico("chev", 12) + '</b></a>'; }
+    var h = '<div class="row" style="gap:8px;flex-wrap:wrap"><button class="btn" id="lg" style="margin:0;flex:1">+ Log money in</button><button class="btn ghost" id="ax" style="margin:0;flex:1">Add expense</button></div><div class="row" style="gap:8px;margin-top:8px"><a class="btn ghost" href="#/books" style="margin:0;flex:1;text-align:center;text-decoration:none">Books and reports</a><a class="btn ghost" href="#/recurring" style="margin:0;flex:1;text-align:center;text-decoration:none">Repeating charges</a></div><h2>Recent activity</h2><div class="card" id="rf" style="padding:4px 14px">' + (recent.length ? recent.map(feedRowHtml).join("") : '<div class="empty">Nothing logged yet. Tap Log money in.</div>') + '</div><a class="small" href="#/feed/all">See every transaction</a><h2>Who owes you</h2>' + (owing.length ? owing.map(function (x) { return '<div class="hist"><div><a href="#/s/' + x.s.id + '/money"><b>' + esc(x.s.name) + '</b></a><div class="small muted">' + esc(openCharges(x.s.id).map(function (c) { return c.title; }).join(", ")) + '</div></div><div style="text-align:right"><b style="color:#d9822b">' + $d(x.c) + '</b><br><button class="pill rem" data-s="' + x.s.id + '">Remind</button></div></div>'; }).join("") : '<div class="card empty">Nobody. You are all caught up.</div>');
     if (owing.length > 1) h += '<button class="btn ghost" id="remall">Remind everyone who owes</button>';
-    h += '<div id="remm" class="small muted"></div><h2>Money in</h2><div class="card"><div class="row" style="justify-content:space-between"><span>This month</span><b>' + $d(receivedSince(monthStart())) + '</b></div><div class="row" style="justify-content:space-between;margin-top:6px"><span>This year</span><b>' + $d(receivedSince(ys)) + '</b></div>' + Object.keys(by).map(function (k) { return '<div class="row small muted" style="justify-content:space-between;margin-top:4px"><span>' + esc(METHODS[k] || k) + '</span><span>' + $d(by[k]) + '</span></div>'; }).join("") + '</div>';
+    h += '<div id="remm" class="small muted"></div><h2>Money in</h2><div class="card" style="padding:4px 14px">' + lk("#/feed/month-in", "This month", $d(receivedSince(monthStart()))) + lk("#/feed/year-in", "This year", $d(receivedSince(ys))) + '</div>' +
+      '<h2>This year by how you got paid</h2><div class="card" style="padding:4px 14px">' + (Object.keys(by).length ? Object.keys(by).sort(function (x, y) { return by[y] - by[x]; }).map(function (k) { return lk("#/feed/m-" + k, esc(METHODS[k] || k), $d(by[k])); }).join("") : '<div class="empty">Nothing yet.</div>') + '</div>' +
+      '<h2>Money out</h2><div class="card" style="padding:4px 14px">' + lk("#/feed/month-out", "This month", $d(mOut)) + lk("#/feed/year-out", "This year", $d(yOut)) + '</div>';
     h += '<h2>How families pay you</h2><div class="card"><input id="vv" placeholder="Venmo, like @coachkayvon" value="' + esc(i.venmo || "") + '"><input id="zz" placeholder="Zelle email or phone" value="' + esc(i.zelle || "") + '"><textarea id="nn" rows="2" placeholder="Note for families (optional)">' + esc(i.note || "") + '</textarea><button class="btn" id="svp">Save payment info</button><div id="svm" class="small muted"></div><div class="small muted">Families only see this on their own player\'s Money tab and in reminders you send.</div></div>';
     h += '<h2>Your rates</h2><div class="card">' + (S.rates.length ? S.rates.map(function (r) { return '<div class="row" style="justify-content:space-between;margin:6px 0"><span><b>' + esc(r.name) + '</b> <span class="small muted">' + esc(({ monthly: "Monthly", drop_in: "Drop in", package: "Package", one_off: "One off" })[r.kind] || "") + (r.lessons ? ", " + r.lessons + " lessons" : "") + '</span></span><span>' + $d(r.amount_cents) + ' <button class="pill delr" data-r="' + r.id + '">Delete</button></span></div>'; }).join("") : '<div class="small muted">No rates yet.</div>') +
       '<hr class="dv"><input id="rn" placeholder="Name, like Drop in or 10 lesson pack"><div class="row" style="gap:8px"><select id="rk"><option value="drop_in">Drop in</option><option value="monthly">Monthly program</option><option value="package">Lesson package</option><option value="one_off">One off</option></select><input id="ra" inputmode="decimal" placeholder="Price"></div><input id="rl" inputmode="numeric" placeholder="Lessons (packages only)"><button class="btn ghost" id="addr">Add rate</button><div id="rme" class="err small"></div><div class="small muted">Your price list is private. No family or other user can ever see it.</div></div>';
     $("#mv").innerHTML = h;
+    feedBind($("#rf"), recent, moneyView);
     $("#mv").onclick = function (e) {
       if (e.target.id === "lg") return logForm(null, moneyView);
       if (e.target.id === "ax") return expenseForm(null, moneyView);
