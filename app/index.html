@@ -1429,9 +1429,25 @@ function agendaCard(l) {
     (counts.length ? '<div class="ln">' + ico("list", 12) + esc(counts.join(", ")) + '</div>' : "") +
     (isPast(l) && l.recap ? '<div class="rc">' + esc(l.recap) + '</div>' : "") + '</div><span class="chev">' + ico("chev", 14) + '</span></button>';
 }
+/* ---------- calendar sync: a private link for Apple, Google and Outlook ---------- */
+function syncModal() {
+  var coach = S.profile.role === "coach", scope = coach ? "coach" : "family", me = S.session.user.id;
+  var mod = openModal('<h3 style="font-size:19px;margin:0 0 6px">Sync to your calendar</h3><div class="small muted" id="sy">Getting your link</div>', null);
+  var q = "calendar_feeds?select=token&owner_id=eq." + me + "&scope=eq." + scope;
+  api(q).then(function (r) { return r[0] ? r : api("calendar_feeds", { json: [{ owner_id: me, scope: scope }], prefer: "return=representation" }); }).then(function (r) {
+    var tk = r[0].token, https = API + "/functions/v1/calendar?t=" + tk, web = "webcal://" + https.replace("https://", ""), e = encodeURIComponent;
+    $("#sy", mod).outerHTML = '<div class="small muted" style="margin-bottom:10px">' + (coach ? "Your whole book stays up to date in your own calendar, including time and location changes." : "Every lesson shows up in your calendar and updates when the coach changes it.") + ' Keep the link private.</div>' +
+      '<a class="btn" style="display:block;text-align:center;text-decoration:none;margin-bottom:8px" href="' + esc(web) + '">Add to Apple Calendar</a>' +
+      '<a class="btn ghost" style="display:block;text-align:center;text-decoration:none;margin-bottom:8px" target="_blank" rel="noopener" href="https://calendar.google.com/calendar/r?cid=' + e(web) + '">Add to Google Calendar</a>' +
+      '<a class="btn ghost" style="display:block;text-align:center;text-decoration:none;margin-bottom:8px" target="_blank" rel="noopener" href="https://outlook.live.com/calendar/0/addfromweb?url=' + e(https) + '&name=' + e(coach ? "My lessons" : "Tennis lessons") + '">Add to Outlook</a>' +
+      '<button class="btn ghost" id="cplink">Copy calendar link</button>';
+    $("#cplink", mod).onclick = function () { var b = this; (navigator.clipboard ? navigator.clipboard.writeText(https) : Promise.reject()).then(function () { b.textContent = "Link copied"; }).catch(function () { window.prompt("Copy this link", https); }); };
+  }).catch(function (er) { var n = $("#sy", mod); if (n) n.textContent = "Could not get your link. " + er.message; });
+}
+
 function calView() {
   var all = calLessons(), coach = S.profile.role === "coach";
-  var html = '<div class="row c" style="margin:14px 0 4px"><h1 class="grow" style="margin:0">Schedule</h1><button class="pill" data-a="today">Today</button></div>';
+  var html = '<div class="row c" style="margin:14px 0 4px"><h1 class="grow" style="margin:0">Schedule</h1><button class="pill" id="syncbtn" style="margin-right:6px">Sync</button><button class="pill" data-a="today">Today</button></div>';
   if (S.students.length > 1) html += '<div class="chips" style="margin-top:6px"><button class="lg' + (Object.keys(calFilter).some(function (k) { return calFilter[k]; }) ? "" : " on") + '" data-f="" style="border-color:' + (Object.keys(calFilter).some(function (k) { return calFilter[k]; }) ? "transparent" : "var(--muted)") + '"><b style="background:var(--muted)"></b>Everyone</button>' +
     S.students.map(function (s) { var on = calFilter[s.id], c = colorOf(s.id); return '<button class="lg" data-f="' + s.id + '" style="border-color:' + (on ? c : "transparent") + ';background:' + (on ? c + "2e" : "var(--card)") + '"><b style="background:' + c + '"></b>' + esc(s.name) + '</button>'; }).join("") + '</div>';
   html += '<div class="seg">' + [["day", "Day"], ["week", "Week"], ["month", "Month"], ["upcoming", "Upcoming"]].map(function (m) { return '<button data-mode="' + m[0] + '" class="' + (calMode === m[0] ? "on" : "") + '">' + m[1] + '</button>'; }).join("") + '</div>';
@@ -1478,6 +1494,7 @@ function calView() {
   }
   app.onclick = function (e) {
     var t;
+    if (e.target.closest("#syncbtn")) return syncModal();
     if ((t = e.target.closest("[data-mode]"))) { calMode = t.dataset.mode; calView(); }
     else if ((t = e.target.closest("[data-kind]"))) { upKind = t.dataset.kind; calView(); }
     else if ((t = e.target.closest("[data-a]"))) { calDay = startOfDay(new Date()); calView(); }
