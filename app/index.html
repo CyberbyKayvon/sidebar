@@ -16,9 +16,9 @@
   a { color:var(--court); }
   button { font:inherit; cursor:pointer; color:inherit; }
   .ic { flex:none; vertical-align:middle; }
-  .wrap { max-width:1000px; margin:0 auto; padding:0 16px 80px; }
+  .wrap { max-width:880px; margin:0 auto; padding:0 16px 80px; }
   header.top { position:sticky; top:0; z-index:5; background:var(--top); border-bottom:1px solid var(--line); }
-  header.top .in { max-width:1000px; margin:0 auto; padding:10px 16px; display:flex; align-items:center; gap:10px; }
+  header.top .in { max-width:880px; margin:0 auto; padding:10px 16px; display:flex; align-items:center; gap:10px; }
   .logo { width:36px; height:36px; border-radius:10px; background:var(--fill); display:grid; place-items:center; flex:none; }
   .logo i { width:18px; height:18px; border-radius:50%; background:var(--ball); display:block; }
   .brand { font-weight:800; font-size:18px; }
@@ -143,6 +143,10 @@
 .pk { display:flex; gap:8px; align-items:center; font-size:15px; margin:6px 0; }
 .pk input { width:auto; margin:0; }
 .pklist { max-height:170px; overflow:auto; margin-bottom:6px; }
+.g2 { display:grid; grid-template-columns:1fr; gap:0 16px; align-items:start; }
+.hl { display:grid; grid-template-columns:1fr; gap:0 12px; }
+.brl { margin:10px 0; } .brl .bar { margin-top:5px; height:5px; }
+@media (min-width: 820px) { .g2, .hl { grid-template-columns:1fr 1fr; } }
 </style>
 </head>
 <body>
@@ -1097,24 +1101,26 @@ function booksView() {
 function drawBooks() {
   var box = $("#bk"); if (!box) return;
   var r = bkRange(), d = booksData(r), pct = 25; try { pct = parseInt(localStorage.getItem("sidebar.taxpct") || "25", 10) || 25; } catch (e) {}
-  var list = function (arr) { return arr.map(function (x) { return '<div class="row" style="justify-content:space-between;margin:6px 0"><span>' + esc(x.name) + '</span><b>' + $d(x.cents) + '</b></div>'; }).join(""); };
+  var list = function (arr) { var mx = Math.max.apply(null, arr.map(function (x) { return x.cents; }).concat([1])); return arr.map(function (x) { return '<div class="brl"><div class="row" style="justify-content:space-between"><span>' + esc(x.name) + '</span><b>' + $d(x.cents) + '</b></div><div class="bar"><i style="width:' + Math.max(3, Math.round(x.cents / mx * 100)) + '%"></i></div></div>'; }).join(""); };
   var h = '<div class="seg"><button data-pg="summary" class="' + (BK.page === "summary" ? "on" : "") + '">Summary</button><button data-pg="income" class="' + (BK.page === "income" ? "on" : "") + '">Income</button><button data-pg="expenses" class="' + (BK.page === "expenses" ? "on" : "") + '">Expenses</button></div>' +
     '<div class="seg" style="margin-top:8px"><button data-yr="w" class="' + (BK.week ? "on" : "") + '">Week</button><button data-yr="0" class="' + (!BK.week && !BK.year ? "on" : "") + '">Month</button><button data-yr="1" class="' + (!BK.week && BK.year ? "on" : "") + '">Year</button></div>' +
     '<div class="row" style="justify-content:space-between;align-items:center;margin:10px 0"><button class="circ" data-st="-1">' + ico("back", 16) + '</button><b>' + esc(r.title) + '</b><button class="circ" data-st="1">' + ico("chev", 16) + '</button></div>';
   if (BK.page === "summary") {
     h += '<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px"><div class="card" style="margin:0"><div style="font-weight:800;font-size:20px;color:#1d9a5b">' + $d(d.income) + '</div><div class="small muted">Income</div></div><div class="card" style="margin:0"><div style="font-weight:800;font-size:20px;color:#d9822b">' + $d(d.expense) + '</div><div class="small muted">Expenses</div></div><div class="card" style="margin:0"><div style="font-weight:800;font-size:22px;color:' + (d.profit >= 0 ? "var(--court)" : "#b3261e") + '">' + $d(d.profit) + '</div><div class="small muted">Profit</div></div></div>';
     if (d.profit > 0) h += '<div class="card"><div class="row" style="justify-content:space-between"><span>Set aside for taxes</span><span><input id="tp" type="number" min="0" max="60" step="5" value="' + pct + '" style="width:64px;display:inline-block;margin:0"> %</span></div><div class="row" style="justify-content:space-between;margin-top:6px"><span class="muted">Rough amount</span><b id="tpv">' + $d(Math.round(d.profit * pct / 100)) + '</b></div><div class="small muted" style="margin-top:6px">Just a rough guide so tax time is not a shock. Ask your accountant for the real number.</div></div>';
-    if (d.byMethod.length) h += '<h2>Income by how you got paid</h2><div class="card">' + list(d.byMethod) + '</div>';
-    if (d.byPlayer.length) h += '<h2>Income by player</h2><div class="card">' + list(d.byPlayer) + '</div>';
-    if (d.bySource.length) h += '<h2>Income from clubs and other</h2><div class="card">' + list(d.bySource) + '</div>';
-    if (d.byCat.length) h += '<h2>Expenses by category</h2><div class="card">' + list(d.byCat) + '</div>';
+    h += '<div class="g2">';
+    if (d.byMethod.length) h += '<div><h2>Income by how you got paid</h2><div class="card">' + list(d.byMethod) + '</div></div>';
+    if (d.byPlayer.length) h += '<div><h2>Income by player</h2><div class="card">' + list(d.byPlayer) + '</div></div>';
+    if (d.bySource.length) h += '<div><h2>Income from clubs and other</h2><div class="card">' + list(d.bySource) + '</div></div>';
+    if (d.byCat.length) h += '<div><h2>Expenses by category</h2><div class="card">' + list(d.byCat) + '</div></div>';
+    h += '</div>';
     h += '<button class="btn ghost" id="csv">Export ' + esc(r.title) + ' as a spreadsheet (CSV)</button><div class="small muted">Every payment, club income and expense in this period, ready for your accountant or tax software.</div>';
   } else if (BK.page === "income") {
     var lines = d.pays.map(function (p) { var ch = S.charges.filter(function (c) { return c.id === p.charge_id; })[0]; return { day: p.paid_on, t: stuName(p.student_id), sub: (ch ? ch.title : "Payment") + ", " + (METHODS[p.method] || "Other"), c: p.amount_cents, k: "p", id: p.id }; }).concat(d.oth.map(function (o) { return { day: o.received_on, t: o.source || "Other income", sub: o.title || (METHODS[o.method] || ""), c: o.amount_cents, k: "o", id: o.id }; })).sort(function (a, b) { return a.day < b.day ? 1 : -1; });
-    h += '<button class="btn" id="li">+ Log money in</button><h2>' + lines.length + ' ' + (lines.length === 1 ? "entry" : "entries") + ', ' + $d(d.income) + '</h2>' + (lines.length ? lines.map(function (l) { return '<div class="hist" data-k="' + l.k + '" data-id="' + l.id + '" style="cursor:pointer"><div><b>' + esc(l.t) + '</b><div class="small muted">' + esc(prettyDay(l.day)) + ' &bull; ' + esc(l.sub) + '</div></div><b style="color:#1d9a5b">+' + $d(l.c) + '</b></div>'; }).join("") : '<div class="card empty">Nothing logged in this period.</div>');
+    h += '<button class="btn" id="li">+ Log money in</button><h2>' + lines.length + ' ' + (lines.length === 1 ? "entry" : "entries") + ', ' + $d(d.income) + '</h2>' + (lines.length ? '<div class="hl">' + lines.map(function (l) { return '<div class="hist" data-k="' + l.k + '" data-id="' + l.id + '" style="cursor:pointer"><div><b>' + esc(l.t) + '</b><div class="small muted">' + esc(prettyDay(l.day)) + ' &bull; ' + esc(l.sub) + '</div></div><b style="color:#1d9a5b">+' + $d(l.c) + '</b></div>'; }).join("") + '</div>' : '<div class="card empty">Nothing logged in this period.</div>');
   } else {
     var ex = d.exp.slice().sort(function (a, b) { return a.spent_on < b.spent_on ? 1 : -1; });
-    h += '<button class="btn" id="ae">+ Add expense</button><h2>' + ex.length + ' ' + (ex.length === 1 ? "expense" : "expenses") + ', ' + $d(d.expense) + '</h2>' + (ex.length ? ex.map(function (e) { return '<div class="hist" data-xe="' + e.id + '" style="cursor:pointer"><div><b>' + esc(e.vendor || e.category) + '</b><div class="small muted">' + esc(prettyDay(e.spent_on)) + ' &bull; ' + esc(e.category) + '</div></div><b style="color:#d9822b">-' + $d(e.amount_cents) + '</b></div>'; }).join("") : '<div class="card empty">No expenses in this period.</div>');
+    h += '<button class="btn" id="ae">+ Add expense</button><h2>' + ex.length + ' ' + (ex.length === 1 ? "expense" : "expenses") + ', ' + $d(d.expense) + '</h2>' + (ex.length ? '<div class="hl">' + ex.map(function (e) { return '<div class="hist" data-xe="' + e.id + '" style="cursor:pointer"><div><b>' + esc(e.vendor || e.category) + '</b><div class="small muted">' + esc(prettyDay(e.spent_on)) + ' &bull; ' + esc(e.category) + '</div></div><b style="color:#d9822b">-' + $d(e.amount_cents) + '</b></div>'; }).join("") + '</div>' : '<div class="card empty">No expenses in this period.</div>');
   }
   box.innerHTML = h;
   var tp = $("#tp"); if (tp) tp.oninput = function () { var v = parseInt(tp.value, 10) || 0; try { localStorage.setItem("sidebar.taxpct", String(v)); } catch (e) {} $("#tpv").textContent = $d(Math.round(d.profit * v / 100)); };
