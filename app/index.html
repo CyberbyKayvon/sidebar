@@ -41,6 +41,14 @@
   .hhead { padding:16px 0 4px; }
   .grid { display:grid; gap:12px; grid-template-columns:repeat(auto-fill,minmax(300px,1fr)); } .grid .card { margin:0; }
   .g2 { display:grid; gap:12px; grid-template-columns:repeat(auto-fill,minmax(160px,1fr)); }
+  .cards { display:grid; gap:12px; grid-template-columns:1fr 1fr; margin:12px 0; }
+  .stat { background:var(--card); border-radius:16px; padding:14px; text-decoration:none; color:inherit; display:block; min-height:112px; }
+  .stat.wide { grid-column:1 / -1; min-height:0; }
+  .stat .st { display:flex; gap:6px; align-items:center; font-size:12px; font-weight:600; color:var(--muted); }
+  .stat .sv { font-size:28px; font-weight:800; margin:4px 0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .bar { height:6px; border-radius:3px; background:var(--line); margin:4px 0 6px; overflow:hidden; } .bar i { display:block; height:100%; }
+  .nu { display:block; width:100%; text-align:left; border:0; color:inherit; font:inherit; cursor:pointer; }
+  .mcol { flex:1; min-width:0; } .mcol b { font-size:24px; display:block; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
   .tiles { display:grid; gap:10px; grid-template-columns:repeat(3,1fr); margin:8px 0 4px; }
   .tile2 { background:var(--card); border-radius:14px; padding:12px; text-decoration:none; color:inherit; display:block; }
   .tile2 b { font-size:19px; display:block; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; } .tile2 span { font-size:12px; color:var(--muted); }
@@ -394,17 +402,15 @@ function openModal(html, onclose) {
 /* ---------- home ---------- */
 function homeView() {
   var coach = S.profile.role === "coach", html = "";
-  html += '<div class="hhead"><div class="cap">' + esc(S.profile.academy || "") + '</div><h1>' + (coach ? "Your students" : "Your coaches") + '</h1></div>';
+  html += '<div class="hhead"><div class="cap">' + (coach ? esc(new Date().toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric" })) : esc(S.profile.academy || "")) + '</div><h1>' + (coach ? esc(greeting()) : "Your coaches") + '</h1></div>';
   html += '<div id="inbox"></div>';
   if (!S.students.length) {
     html += '<div class="card empty">' + (coach ? "No students yet. Add them in the Sidebar app on your phone, and they show up here." : "Nothing here yet. Use the invite code your coach sent you.") + '</div>';
   } else if (coach) {
     var joined = S.students.filter(function (s) { return s.claimed; }).length, waiting = S.students.length - joined;
-    var nx = S.lessons.filter(function (l) { return !isPast(l); })[0];
-    var nxt = nx ? new Date(nx.start_at).toLocaleDateString(undefined, { weekday: "short" }) + " " + fmtTime(nx.start_at) : "None";
-    html += '<div class="tiles"><div class="tile2"><b>' + joined + '</b><span>Students</span></div><div class="tile2"><b>' + waiting + '</b><span>Invited</span></div><a class="tile2" href="#/cal"><b>' + esc(nxt) + '</b><span>Next lesson</span></a></div>';
-    html += '<a class="card" href="#/money" style="display:block;text-decoration:none;color:inherit;margin-top:12px"><div class="row" style="justify-content:space-between"><b style="color:var(--court)">' + ico("dollar", 18) + ' Money</b><span class="chev">' + ico("chev", 14) + '</span></div><div class="row" style="gap:22px;margin-top:8px"><div><div style="font-weight:800;font-size:20px;color:' + (owedTotal() > 0 ? "#d9822b" : "inherit") + '">' + $d(owedTotal()) + '</div><div class="small muted">Owed to you</div></div><div><div style="font-weight:800;font-size:20px">' + $d(receivedSince(monthStart())) + '</div><div class="small muted">This month</div></div><div><div style="font-weight:800;font-size:20px">' + $d(receivedSince(yearStart())) + '</div><div class="small muted">This year</div></div></div></a>';
-    html += '<div class="grid" style="margin-top:12px">' + S.students.map(function (s) {
+    html += '<div id="today"></div><div id="wk"></div>';
+    html += '<div class="row c" style="margin:20px 0 8px"><div style="font-weight:700;font-size:17px">Your students</div><div class="small muted" style="margin-left:8px">' + joined + ' active' + (waiting ? ", " + waiting + " invited" : "") + '</div></div>';
+    html += '<div class="grid">' + S.students.map(function (s) {
       var body = s.claimed
         ? '<hr class="dv">' + infoRow("calendar", nextText(s.id)) + infoRow("note", noteText(s.id)) + infoRow("trophy", tournText(s.id)) + (s.utr_rating ? infoRow("trend", "UTR " + s.utr_rating) : "")
         : '<div class="small muted" style="margin-top:12px">Not joined yet. Everything you add in the app shows up when the family joins.</div>';
@@ -426,11 +432,71 @@ function homeView() {
       return '<a class="jr" href="#/s/' + s.id + '/lessons"><div class="av">' + esc(s.name.charAt(0).toUpperCase()) + '</div><div class="tx"><div class="t">' + esc(s.name) + '</div><div class="u">' + esc(nextText(s.id)) + '</div></div><span class="chev">' + ico("chev") + '</span></a>';
     }).join("");
   }
-  if (S.students.length) html += '<div id="wk"></div>';
+  if (S.students.length && !coach) html += '<div id="wk"></div>';
   html += '<div id="share"></div>';
   app.innerHTML = shell(html);
   if (S.students.length) weekSection($("#wk"));
+  if (coach && S.students.length) todayCards($("#today"));
   homeExtras(coach);
+}
+
+/* ---------- coach snapshot cards ---------- */
+function greeting() {
+  var h = new Date().getHours(), part = h < 12 ? "Good morning" : h < 17 ? "Good afternoon" : "Good evening";
+  var n = String((S.profile && S.profile.display_name) || "").trim().replace(/^coach\s+/i, "").split(/\s+/)[0];
+  return n ? part + ", " + n : part;
+}
+function hrsText(m) { var h = m / 60; return h === Math.round(h) ? String(h) : h.toFixed(1); }
+function bookSnap() {
+  var now = new Date(), start = startOfDay(now); start.setDate(start.getDate() - start.getDay());
+  var end = new Date(start); end.setDate(end.getDate() + 7);
+  var ls = S.lessons.slice().sort(function (a, b) { return new Date(a.start_at) - new Date(b.start_at); });
+  var td = ls.filter(function (l) { return sameDay(l.start_at, now); });
+  var wk = ls.filter(function (l) { var t = new Date(l.start_at); return t >= start && t < end; });
+  function mins(a) { return a.reduce(function (n, l) { return n + (l.minutes || 60); }, 0); }
+  var wDone = wk.filter(isPast), wLeft = wk.filter(function (l) { return !isPast(l); });
+  return { td: td, tDone: td.filter(isPast).length, wk: wk.length, wDone: wDone.length, wLeft: wLeft.length, mDone: mins(wDone), mLeft: mins(wLeft), next: ls.filter(function (l) { return !isPast(l); })[0] };
+}
+function bookRange(a, b) {
+  var inc = sum(S.payments.filter(function (p) { return p.paid_on >= a && p.paid_on < b; }), function (p) { return p.amount_cents; }) + sum(S.otherIncome.filter(function (o) { return o.received_on >= a && o.received_on < b; }), function (o) { return o.amount_cents; });
+  var out = sum(S.expenses.filter(function (e) { return e.spent_on >= a && e.spent_on < b; }), function (e) { return e.amount_cents; });
+  return { inc: inc, out: out, net: inc - out };
+}
+function statCard(href, icon, title, value, caption, tint, prog) {
+  return '<a class="stat" href="' + href + '"><div class="st">' + ico(icon, 14) + '<span>' + esc(title) + '</span></div><div class="sv"' + (tint ? ' style="color:' + tint + '"' : "") + '>' + esc(value) + '</div>' +
+    (prog === null || prog === undefined ? "" : '<div class="bar"><i style="width:' + Math.round(Math.min(prog, 1) * 100) + '%;background:' + (tint || "var(--court)") + '"></i></div>') + '<div class="small muted">' + esc(caption) + '</div></a>';
+}
+function nextUpHtml(sn) {
+  var l = sn.next;
+  if (!l) return '<a class="card" href="#/cal" style="display:block;text-decoration:none;color:inherit"><div class="cap" style="color:var(--court)">NEXT UP</div><div style="font-size:22px;font-weight:800">Nothing booked</div><div class="small muted">Open the calendar to schedule a lesson.</div></a>';
+  var col = colorOf(sids(l)[0]), names = namesOf(l).join(", ") || l.kind, t0 = new Date(l.start_at).getTime(), playing = t0 <= Date.now();
+  var dl = sameDay(l.start_at, new Date()) ? "Today" : sameDay(l.start_at, new Date(Date.now() + 864e5)) ? "Tomorrow" : new Date(l.start_at).toLocaleDateString(undefined, { weekday: "long", month: "short", day: "numeric" });
+  var m = Math.round((t0 - Date.now()) / 60000), cd = "";
+  if (playing) cd = "Ends " + fmtTime(lEnd(l)); else if (m > 0 && m < 720) cd = "in " + (m >= 60 ? Math.floor(m / 60) + " hr" + (m % 60 ? " " + (m % 60) + " min" : "") : m + " min");
+  return '<button class="card nu" data-l="' + l.id + '" style="border-left:6px solid ' + col + '"><div class="row" style="justify-content:space-between"><span class="cap" style="color:' + col + ';font-weight:800">' + (playing ? "HAPPENING NOW" : "NEXT UP") + '</span><span class="small muted">' + esc(cd) + '</span></div>' +
+    '<div style="font-size:22px;font-weight:800;margin:4px 0">' + esc(names) + '</div><div style="font-weight:600">' + esc(dl + ", " + rangeText(l)) + '</div><div class="small muted" style="margin-top:4px">' + esc(l.kind) + (l.location ? " &middot; " : "") + esc(l.location || "") + '</div></button>';
+}
+function moneyCardHtml() {
+  var n = new Date(), ms = monthStart(), mn = dayStr(new Date(n.getFullYear(), n.getMonth() + 1, 1)), ys = yearStart(), yn = dayStr(new Date(n.getFullYear() + 1, 0, 1));
+  var m = bookRange(ms, mn), y = bookRange(ys, yn), ratio = m.inc > 0 ? m.out / m.inc : 0, kept = m.net >= 0;
+  var line = m.inc > 0 ? "Spending is " + Math.round(ratio * 100) + "% of what came in" : m.out > 0 ? $d(m.out) + " out and nothing in yet" : "Nothing in or out yet this month";
+  function col(label, v, c) { return '<div class="mcol"><b style="color:' + c + '">' + $d(v) + '</b><span class="small muted">' + label + '</span></div>'; }
+  return '<a class="stat wide" href="#/books"><div class="row" style="justify-content:space-between"><span class="st">' + ico("dollar", 14) + ' Money this month</span><span class="small" style="color:var(--court);font-weight:600">Books ' + ico("chev", 12) + '</span></div>' +
+    '<div class="row" style="gap:10px;margin:8px 0 6px">' + col("In", m.inc, "#1d9a5b") + col("Out", m.out, "#d9822b") + col(kept ? "Kept" : "Short by", Math.abs(m.net), kept ? "#1d9a5b" : "var(--danger)") + '</div>' +
+    (m.inc > 0 || m.out > 0 ? '<div class="bar"><i style="width:' + Math.round(Math.min(ratio, 1) * 100) + '%;background:#d9822b"></i></div>' : "") +
+    '<div class="small muted">' + esc(line) + '</div><div class="small muted" style="margin-top:2px">This year: ' + $d(y.inc) + ' in, ' + $d(y.out) + ' out, ' + $d(Math.abs(y.net)) + (y.net >= 0 ? " kept" : " short") + '</div></a>';
+}
+function todayCards(box) {
+  if (!box) return;
+  var sn = bookSnap(), tn = sn.td.length, ow = owedList(), tot = owedTotal(), hrs = sn.mDone + sn.mLeft;
+  box.innerHTML = nextUpHtml(sn) + '<div class="cards">' +
+    statCard("#/cal", "calendar", "Lessons today", String(tn), tn ? sn.tDone + " done, " + (tn - sn.tDone) + " left" : "Day off", null, tn ? sn.tDone / tn : null) +
+    statCard("#/cal", "calendar", "This week", sn.wDone + " of " + sn.wk, sn.wk ? sn.wLeft + " left to coach" : "Nothing booked", null, sn.wk ? sn.wDone / sn.wk : null) +
+    moneyCardHtml() +
+    statCard("#/money", "dollar", "Owed to you", $d(tot), ow.length ? ow.length + (ow.length === 1 ? " family" : " families") + " to remind" : "All caught up", tot > 0 ? "#d9822b" : null) +
+    statCard("#/cal", "list", "Court hours this week", hrsText(hrs), hrs ? hrsText(sn.mDone) + " done, " + hrsText(sn.mLeft) + " to go" : "Nothing booked", null, hrs ? sn.mDone / hrs : null) +
+    '</div>';
+  box.onclick = function (e) { var b = e.target.closest("[data-l]"); if (b) openLessonById(b.dataset.l); };
 }
 
 /* Join requests, lesson requests and the coach code */
