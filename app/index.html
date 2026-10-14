@@ -138,8 +138,8 @@
 @media print { .top, .tabs, .foot, .hub .t1 .circ, .noprint, .banner, .sw { display: none !important; } body { background: #fff; } }
 .chip.owes { background: rgba(217,130,43,.2); color: #b9651a; margin-left: 6px; }
 .pbadge { display:inline-block; font-size:12px; font-weight:800; padding:3px 10px; border-radius:999px; }
-.pchips button { font:inherit; font-size:12px; font-weight:700; border:1px solid #d9ddd8; background:#fff; border-radius:999px; padding:4px 10px; margin:4px 4px 0 0; cursor:pointer; }
-.hist { display:flex; justify-content:space-between; gap:10px; align-items:center; padding:12px; background:#fff; border-radius:12px; margin:6px 0; }
+.pchips button { font:inherit; font-size:12px; font-weight:700; border:1px solid var(--line); background:var(--card); color:var(--text); border-radius:999px; padding:4px 10px; margin:4px 4px 0 0; cursor:pointer; }
+.hist { display:flex; justify-content:space-between; gap:10px; align-items:center; padding:12px; background:var(--card); color:var(--text); border-radius:12px; margin:6px 0; }
 .pk { display:flex; gap:8px; align-items:center; font-size:15px; margin:6px 0; }
 .pk input { width:auto; margin:0; }
 .pklist { max-height:170px; overflow:auto; margin-bottom:6px; }
@@ -1059,9 +1059,15 @@ function otherForm(o, done) {
 }
 
 /* Books: summary, income, expenses, by month or year, CSV */
-var BK = { page: "summary", d: new Date(), year: false };
+var BK = { page: "summary", d: new Date(), year: false, week: false };
 function bkRange() {
   var y = BK.d.getFullYear(), m = BK.d.getMonth();
+  if (BK.week) {
+    var start = new Date(BK.d.getFullYear(), BK.d.getMonth(), BK.d.getDate()); start.setDate(start.getDate() - ((start.getDay() + 6) % 7));
+    var end = new Date(start); end.setDate(end.getDate() + 7); var last = new Date(end); last.setDate(last.getDate() - 1);
+    var f = function (d) { return d.toLocaleDateString(undefined, { month: "short", day: "numeric" }); };
+    return { from: dayStr(start), to: dayStr(end), title: f(start) + " to " + f(last) };
+  }
   return BK.year ? { from: dayStr(new Date(y, 0, 1)), to: dayStr(new Date(y + 1, 0, 1)), title: String(y) } : { from: dayStr(new Date(y, m, 1)), to: dayStr(new Date(y, m + 1, 1)), title: BK.d.toLocaleDateString(undefined, { month: "long", year: "numeric" }) };
 }
 function tally(rows, key, val) { var t = {}; rows.forEach(function (r) { var k = key(r); t[k] = (t[k] || 0) + val(r); }); return Object.keys(t).map(function (k) { return { name: k, cents: t[k] }; }).sort(function (a, b) { return b.cents - a.cents; }); }
@@ -1093,7 +1099,7 @@ function drawBooks() {
   var r = bkRange(), d = booksData(r), pct = 25; try { pct = parseInt(localStorage.getItem("sidebar.taxpct") || "25", 10) || 25; } catch (e) {}
   var list = function (arr) { return arr.map(function (x) { return '<div class="row" style="justify-content:space-between;margin:6px 0"><span>' + esc(x.name) + '</span><b>' + $d(x.cents) + '</b></div>'; }).join(""); };
   var h = '<div class="seg"><button data-pg="summary" class="' + (BK.page === "summary" ? "on" : "") + '">Summary</button><button data-pg="income" class="' + (BK.page === "income" ? "on" : "") + '">Income</button><button data-pg="expenses" class="' + (BK.page === "expenses" ? "on" : "") + '">Expenses</button></div>' +
-    '<div class="seg" style="margin-top:8px"><button data-yr="0" class="' + (BK.year ? "" : "on") + '">Month</button><button data-yr="1" class="' + (BK.year ? "on" : "") + '">Year</button></div>' +
+    '<div class="seg" style="margin-top:8px"><button data-yr="w" class="' + (BK.week ? "on" : "") + '">Week</button><button data-yr="0" class="' + (!BK.week && !BK.year ? "on" : "") + '">Month</button><button data-yr="1" class="' + (!BK.week && BK.year ? "on" : "") + '">Year</button></div>' +
     '<div class="row" style="justify-content:space-between;align-items:center;margin:10px 0"><button class="circ" data-st="-1">' + ico("back", 16) + '</button><b>' + esc(r.title) + '</b><button class="circ" data-st="1">' + ico("chev", 16) + '</button></div>';
   if (BK.page === "summary") {
     h += '<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px"><div class="card" style="margin:0"><div style="font-weight:800;font-size:20px;color:#1d9a5b">' + $d(d.income) + '</div><div class="small muted">Income</div></div><div class="card" style="margin:0"><div style="font-weight:800;font-size:20px;color:#d9822b">' + $d(d.expense) + '</div><div class="small muted">Expenses</div></div><div class="card" style="margin:0"><div style="font-weight:800;font-size:22px;color:' + (d.profit >= 0 ? "var(--court)" : "#b3261e") + '">' + $d(d.profit) + '</div><div class="small muted">Profit</div></div></div>';
@@ -1114,8 +1120,8 @@ function drawBooks() {
   var tp = $("#tp"); if (tp) tp.oninput = function () { var v = parseInt(tp.value, 10) || 0; try { localStorage.setItem("sidebar.taxpct", String(v)); } catch (e) {} $("#tpv").textContent = $d(Math.round(d.profit * v / 100)); };
   box.onclick = function (e) {
     var pg = e.target.closest("[data-pg]"); if (pg) { BK.page = pg.dataset.pg; return drawBooks(); }
-    var yr = e.target.closest("[data-yr]"); if (yr) { BK.year = yr.dataset.yr === "1"; return drawBooks(); }
-    var st = e.target.closest("[data-st]"); if (st) { var n = parseInt(st.dataset.st, 10); BK.d = BK.year ? new Date(BK.d.getFullYear() + n, 0, 1) : new Date(BK.d.getFullYear(), BK.d.getMonth() + n, 1); return drawBooks(); }
+    var yr = e.target.closest("[data-yr]"); if (yr) { BK.week = yr.dataset.yr === "w"; BK.year = yr.dataset.yr === "1"; return drawBooks(); }
+    var st = e.target.closest("[data-st]"); if (st) { var n = parseInt(st.dataset.st, 10); BK.d = BK.week ? new Date(BK.d.getFullYear(), BK.d.getMonth(), BK.d.getDate() + 7 * n) : BK.year ? new Date(BK.d.getFullYear() + n, 0, 1) : new Date(BK.d.getFullYear(), BK.d.getMonth() + n, 1); return drawBooks(); }
     if (e.target.id === "csv") return downloadBooksCSV(r, d);
     if (e.target.id === "li") return logForm(null, drawBooks);
     if (e.target.id === "ae") return expenseForm(null, drawBooks);
