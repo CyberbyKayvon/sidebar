@@ -352,6 +352,8 @@ function render() {
   if (h2[0] === "recurring" && S.profile.role === "coach") return recurringView();
   if (h2[0] === "feedback" && S.session.user.id === ADMIN_UID) return feedbackInbox();
   if (h2[0] === "groups" && S.profile.role === "coach") return groupsView();
+  if (h2[0] === "find") return findView(h2[1] === "clinics" ? "clinics" : "coaches");
+  if (h2[0] === "me" && S.profile.role === "coach") return h2[1] === "clinics" ? myClinicsView() : myProfileView();
   if (h2[0] === "g" && h2[1] && S.profile.role === "coach") return groupView(h2[1]);
   if (h2[0] === "signup") return signupView();
   return homeView();
@@ -423,6 +425,7 @@ function homeView() {
   var coach = S.profile.role === "coach", html = "";
   html += '<div class="hhead"><div class="cap">' + (coach ? esc(new Date().toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric" })) : esc(S.profile.academy || "")) + '</div><h1>' + (coach ? esc(greeting()) : "Your coaches") + '</h1></div>';
   html += '<div id="inbox"></div>';
+  html += '<div class="row" style="gap:8px;margin:6px 0 10px;flex-wrap:wrap"><a class="pill" href="#/find">' + (coach ? "Find coaches" : "Find a coach") + '</a><a class="pill" href="#/find/clinics">Clinics</a>' + (coach ? '<a class="pill" href="#/me/profile">My public profile</a><a class="pill" href="#/me/clinics">My clinics</a>' : "") + '</div>';
   if (!S.students.length) {
     html += '<div class="card empty">' + (coach ? "No students yet. Add them in the Sidebar app on your phone, and they show up here." : "Nothing here yet. Use the invite code your coach sent you.") + '</div>';
   } else if (coach) {
@@ -1989,6 +1992,183 @@ function feedbackInbox() {
 
 /* ---------- start ---------- */
 if (S.session) boot(); else render();
+
+/* ---------- discovery: find coaches, public profiles, public clinics ---------- */
+var DSPEC = ["Serve", "Forehand", "Backhand", "Net play", "Footwork", "Match play", "Strategy", "Doubles", "Mental game", "Fitness", "Beginners", "High performance", "College recruiting", "Adult programs"];
+var DLT = ["Private", "Semi private", "Group", "Clinic", "Camp"];
+var DLV = ["New player", "Red ball", "Orange ball", "Green ball", "Yellow ball", "Intermediate", "Advanced", "Tournament player"];
+var DCOL = ["#12543f", "#3373f2", "#e6732e", "#8c4dbf", "#d94066", "#1a9999", "#bf8c1a", "#596680"];
+function rpcCall(name, body) { return api("rpc/" + name, { method: "POST", json: body || {} }); }
+function dav(name, key, size) {
+  var i = /^\d+$/.test(key || "") ? +key : (String(name || "?").split("").reduce(function (a, c) { return (a * 31 + c.charCodeAt(0)) & 65535; }, 0));
+  size = size || 52;
+  return '<div class="av" style="width:' + size + 'px;height:' + size + 'px;flex:none;background:' + DCOL[i % DCOL.length] + ';color:#fff;font-size:' + Math.round(size * 0.42) + 'px">' + esc(String(name || "?").charAt(0).toUpperCase()) + '</div>';
+}
+function chipsOf(a) { return (a || []).map(function (x) { return '<span class="chip" style="margin:2px 4px 2px 0">' + esc(x) + '</span>'; }).join(""); }
+function dtabs(on) {
+  var coach = S.profile.role === "coach";
+  return '<div class="row" style="gap:8px;margin:10px 0;flex-wrap:wrap"><a class="pill' + (on === "coaches" ? " on" : "") + '" href="#/find"' + (on === "coaches" ? ' style="background:var(--fill);color:#fff"' : "") + '>Find coaches</a><a class="pill" href="#/find/clinics"' + (on === "clinics" ? ' style="background:var(--fill);color:#fff"' : "") + '>Clinics</a>' +
+    (coach ? '<a class="pill" href="#/me/profile"' + (on === "profile" ? ' style="background:var(--fill);color:#fff"' : "") + '>My public profile</a><a class="pill" href="#/me/clinics"' + (on === "myclinics" ? ' style="background:var(--fill);color:#fff"' : "") + '>My clinics</a>' : "") + '</div>';
+}
+function whenLine(c) {
+  var s = new Date(c.starts_at || c.startsAt), e = new Date(s.getTime() + c.minutes * 60000);
+  return fmtDate(s, { weekday: "long", month: "short", day: "numeric" }) + ", " + fmtTime(s) + " to " + fmtTime(e);
+}
+
+function findView(tab) {
+  var clinics = tab === "clinics";
+  app.innerHTML = shell('<div class="hhead"><a class="small" href="#/">&larr; Home</a><h1>' + (clinics ? "Clinics" : "Find a coach") + '</h1></div>' + dtabs(clinics ? "clinics" : "coaches") +
+    '<input id="fq" placeholder="' + (clinics ? "City, club or clinic" : "City, name, club or skill") + '">' +
+    (clinics ? "" : '<div class="row" style="gap:8px"><select id="fl"><option value="">Any level</option>' + DLV.map(function (x) { return "<option>" + x + "</option>"; }).join("") + '</select><select id="ft"><option value="">Any lessons</option>' + DLT.map(function (x) { return "<option>" + x + "</option>"; }).join("") + '</select></div>') +
+    '<div id="fr"><p class="muted">Loading...</p></div>');
+  var t = null;
+  function go() {
+    var q = $("#fq").value;
+    var call = clinics ? rpcCall("list_clinics", { q: q }) : rpcCall("search_coaches", { q: q, lvl: $("#fl").value, lt: $("#ft").value });
+    call.then(function (rows) {
+      var box = $("#fr"); if (!box) return;
+      if (!rows.length) { box.innerHTML = '<div class="card empty">' + (clinics ? "No open clinics yet. When coaches post clinics, they show up here." : "No coaches match yet. Try a nearby city or clear a filter.") + '</div>'; return; }
+      box.innerHTML = '<div class="grid">' + rows.map(function (r, i) { return clinics ? clinicCard(r, i) : coachCard(r, i); }).join("") + '</div>';
+      box.querySelectorAll("[data-i]").forEach(function (el) { el.onclick = function () { var r = rows[+el.dataset.i]; if (clinics) clinicModal(r, go); else coachModal(r); }; });
+    }).catch(function (e) { var b = $("#fr"); if (b) b.innerHTML = '<p class="err">Could not load. ' + esc(e.message) + '</p>'; });
+  }
+  $("#fq").oninput = function () { clearTimeout(t); t = setTimeout(go, 300); };
+  if (!clinics) { $("#fl").onchange = go; $("#ft").onchange = go; }
+  go();
+}
+function coachCard(c, i) {
+  return '<a class="card" data-i="' + i + '" style="display:block;cursor:pointer;text-decoration:none;color:inherit"><div class="row" style="gap:12px">' + dav(c.name, c.avatar_color, 52) + '<div class="grow"><div class="hd">' + esc(c.name) + (c.accepting ? "" : ' <span class="chip owes">Full</span>') + '</div>' +
+    (c.headline ? '<div class="small muted">' + esc(c.headline) + '</div>' : "") + '<div class="small muted">' + esc([c.city, c.state].filter(Boolean).join(", ")) + (c.video_count > 0 ? " &middot; " + c.video_count + " videos" : "") + '</div><div style="margin-top:6px">' + chipsOf((c.specialties || []).slice(0, 3)) + '</div></div></div></a>';
+}
+function coachModal(c) {
+  var mod = openModal('<div class="row" style="gap:14px">' + dav(c.name, c.avatar_color, 72) + '<div class="grow"><h3 style="margin:0;font-size:22px">' + esc(c.name) + '</h3><div class="muted">' + esc(c.academy || "") + '</div><div class="small muted">' + esc([c.city, c.state].filter(Boolean).join(", ")) + '</div></div></div>' +
+    (c.headline ? '<p style="font-weight:700;margin:12px 0 4px">' + esc(c.headline) + '</p>' : "") +
+    '<div class="small muted">' + (c.years != null ? c.years + " years coaching" : "") + (c.rate_note ? " &middot; " + esc(c.rate_note) : "") + " &middot; " + (c.accepting ? "Taking new players" : "Full right now") + '</div>' +
+    (c.bio ? '<p style="white-space:pre-wrap">' + esc(c.bio) + '</p>' : "") +
+    (c.specialties.length ? '<div class="cap">TEACHES</div>' + chipsOf(c.specialties) : "") + (c.lesson_types.length ? '<div class="cap" style="margin-top:8px">LESSONS</div>' + chipsOf(c.lesson_types) : "") + (c.levels.length ? '<div class="cap" style="margin-top:8px">WORKS WITH</div>' + chipsOf(c.levels) : "") +
+    '<div id="cv"></div><button class="btn" id="ask" style="margin-top:14px">' + (c.accepting ? "Ask to join" : "Ask to join the waitlist") + '</button><div id="af"></div>' +
+    '<p class="small muted">Sidebar does not check coaches. Meet in public places and ask about background checks and certifications before you book.</p>');
+  api("coach_videos?coach_id=eq." + c.coach_id + "&select=*&order=created_at.desc&limit=20").then(function (v) {
+    var box = $("#cv", mod); if (!box || !v.length) return;
+    box.innerHTML = '<div class="cap" style="margin-top:10px">VIDEOS</div>' + v.map(function (x) { return /^https?:\/\//i.test(x.url) ? '<a class="card" target="_blank" rel="noopener noreferrer" href="' + esc(x.url) + '" style="display:block;text-decoration:none;color:inherit;margin:6px 0">' + ico("video", 18) + ' <b>' + esc(x.title) + '</b><div class="small muted">' + esc(x.note || "") + '</div></a>' : ""; }).join("");
+  }).catch(function () {});
+  $("#ask", mod).onclick = function () {
+    $("#ask", mod).style.display = "none";
+    $("#af", mod).innerHTML = '<h3>About the player</h3><input id="pn" placeholder="Player first name"><input id="pa" type="number" min="4" max="18" value="10"><select id="pl">' + DLV.map(function (x) { return "<option>" + x + "</option>"; }).join("") + '</select><input id="pp" placeholder="Parent first name"><input id="pc" placeholder="Parent phone or email"><textarea id="po" rows="2" placeholder="Anything your coach should know (optional)"></textarea><div id="pm" class="err small"></div><button class="btn" id="ps">Send request</button>';
+    $("#ps", mod).onclick = function () {
+      var name = $("#pn", mod).value.trim(); if (!name) { $("#pm", mod).textContent = "Add the player name."; return; }
+      $("#ps", mod).disabled = true;
+      rpcCall("request_to_join", { code: c.coach_code, student_name: name, student_age: +$("#pa", mod).value || 10, student_level: $("#pl", mod).value, parent_name: $("#pp", mod).value.trim(), contact: $("#pc", mod).value.trim(), note: $("#po", mod).value.trim() })
+        .then(function () { $("#af", mod).innerHTML = '<div class="card" style="text-align:center"><b>Request sent</b><div class="small muted">' + esc(c.name) + ' will see it and can approve it from their dashboard.</div></div>'; })
+        .catch(function (e) { $("#pm", mod).textContent = e.message; $("#ps", mod).disabled = false; });
+    };
+  };
+}
+function clinicCard(c, i) {
+  var left = Math.max(0, c.capacity - c.confirmed), full = left === 0;
+  var tag = c.my_status ? (c.my_status === "confirmed" ? '<span class="chip">You are in</span>' : '<span class="chip owes">On the waitlist</span>') : full ? '<span class="chip owes">Full, ' + c.waitlisted + ' waiting</span>' : '<span class="chip">' + left + (left === 1 ? " spot" : " spots") + ' left</span>';
+  return '<a class="card" data-i="' + i + '" style="display:block;cursor:pointer;text-decoration:none;color:inherit"><div class="row c"><div class="hd grow">' + esc(c.title) + '</div>' + tag + '</div><div class="small">' + esc(whenLine(c)) + '</div><div class="small muted">' + esc([c.location, c.city].filter(Boolean).join(", ")) + '</div><div class="row c" style="gap:8px;margin-top:8px">' + dav(c.coach_name, c.coach_avatar, 24) + '<span class="small muted">' + esc(c.coach_name) + '</span>' + (c.price_note ? '<b class="small" style="color:var(--court)">' + esc(c.price_note) + '</b>' : "") + '</div></a>';
+}
+function clinicModal(c, done) {
+  var full = c.capacity - c.confirmed <= 0;
+  var mod = openModal('<h3 style="margin:0;font-size:22px">' + esc(c.title) + '</h3><div style="margin:8px 0">' + esc(whenLine(c)) + '</div><div class="small muted">' + esc([c.location, c.city].filter(Boolean).join(", ")) + '</div><div class="small muted">Coach ' + esc(c.coach_name) + (c.price_note ? " &middot; " + esc(c.price_note) : "") + (c.level ? " &middot; " + esc(c.level) : "") + (c.age_note ? " &middot; " + esc(c.age_note) : "") + '</div><div class="small muted">' + c.confirmed + " of " + c.capacity + ' spots taken' + (c.waitlisted ? ", " + c.waitlisted + " waiting" : "") + '</div>' + (c.description ? '<p style="white-space:pre-wrap">' + esc(c.description) + '</p>' : "") + '<div id="cf"></div>', done);
+  var box = $("#cf", mod);
+  if (c.my_status) { box.innerHTML = '<div class="card" style="text-align:center"><b>' + (c.my_status === "confirmed" ? "You are in!" : "You are on the waitlist") + '</b><div class="small muted">To change or cancel, message the coach.</div></div>'; return; }
+  box.innerHTML = '<h3>' + (full ? "Join the waiting list" : "Sign up") + '</h3><input id="cn" placeholder="Player first name"><input id="ca" type="number" min="3" max="99" value="10"><input id="cc" placeholder="Parent phone or email"><textarea id="co" rows="2" placeholder="Anything the coach should know (optional)"></textarea><div id="cm" class="err small"></div><button class="btn" id="cs">' + (full ? "Join waitlist" : "Sign up") + '</button><p class="small muted">The coach sees this so they can reach you. Payment is arranged with the coach.</p>';
+  $("#cs", mod).onclick = function () {
+    var n = $("#cn", mod).value.trim(), ct = $("#cc", mod).value.trim();
+    if (!n || !ct) { $("#cm", mod).textContent = "Add the player name and a way to reach you."; return; }
+    $("#cs", mod).disabled = true;
+    rpcCall("sign_up_clinic", { clinic: c.id, player_name: n, player_age: +$("#ca", mod).value || 10, contact: ct, note: $("#co", mod).value.trim() })
+      .then(function (st) { box.innerHTML = '<div class="card" style="text-align:center"><b>' + (st === "confirmed" ? "You are in!" : "You are on the waitlist") + '</b><div class="small muted">' + (st === "confirmed" ? "The coach has your contact info." : "If a spot opens you move in automatically.") + '</div></div>'; })
+      .catch(function (e) { $("#cm", mod).textContent = e.message; $("#cs", mod).disabled = false; });
+  };
+}
+
+/* coach: public profile */
+function myProfileView() {
+  var me = S.session.user.id;
+  app.innerHTML = shell('<div class="hhead"><a class="small" href="#/">&larr; Home</a><h1>My public profile</h1></div>' + dtabs("profile") + '<p class="muted">Loading...</p>');
+  Promise.all([api("coach_profiles?coach_id=eq." + me + "&select=*"), api("coach_videos?coach_id=eq." + me + "&select=*&order=created_at.desc")]).then(function (r) {
+    var p = r[0][0] || { coach_id: me, listed: false, headline: "", bio: "", city: "", state: "", sports: ["Tennis"], specialties: [], levels: [], lesson_types: [], years: null, rate_note: "", accepting: true, avatar_color: "0" };
+    if (!p.avatar_color) p.avatar_color = "0";
+    var vids = r[1];
+    function multi(id, opts, sel) { return '<div id="' + id + '" style="margin:6px 0">' + opts.map(function (o) { return '<button class="pill" data-o="' + esc(o) + '" style="margin:3px 4px 3px 0;' + (sel.indexOf(o) >= 0 ? "background:var(--fill);color:#fff" : "") + '">' + esc(o) + '</button>'; }).join("") + '</div>'; }
+    app.innerHTML = shell('<div class="hhead"><a class="small" href="#/">&larr; Home</a><h1>My public profile</h1></div>' + dtabs("profile") +
+      '<div class="card"><label class="row c"><input type="checkbox" id="pl" style="width:auto;margin-right:10px"' + (p.listed ? " checked" : "") + '><b>List me in Find a coach</b></label><label class="row c"><input type="checkbox" id="pa" style="width:auto;margin-right:10px"' + (p.accepting ? " checked" : "") + '>Taking new players</label>' +
+      '<p class="small muted">Families can see your name, city, bio and videos. Your phone, email and exact address are never shown. Families ask to join and you approve each one.</p></div>' +
+      '<div class="card"><div class="cap">PICTURE COLOR</div><div id="pc" class="row" style="gap:8px;margin:6px 0">' + DCOL.map(function (c, i) { return '<button data-c="' + i + '" style="width:34px;height:34px;border-radius:50%;border:3px solid ' + (String(p.avatar_color) === String(i) ? "var(--text)" : "transparent") + ';background:' + c + '"></button>'; }).join("") + '</div>' +
+      '<input id="ph" maxlength="100" placeholder="Headline, like Former D1 player, 15 years coaching" value="' + esc(p.headline) + '"><textarea id="pb" rows="5" maxlength="1200" placeholder="Bio">' + esc(p.bio) + '</textarea>' +
+      '<div class="row" style="gap:8px"><input id="pcty" placeholder="City" value="' + esc(p.city) + '"><input id="pst" placeholder="State" value="' + esc(p.state) + '" style="max-width:110px"></div><div class="row" style="gap:8px"><input id="py" type="number" placeholder="Years coaching" value="' + (p.years == null ? "" : p.years) + '"><input id="pr" maxlength="60" placeholder="Rates, like $90 to $120 an hour" value="' + esc(p.rate_note) + '"></div>' +
+      '<div class="cap">WHAT YOU TEACH</div>' + multi("msp", DSPEC, p.specialties) + '<div class="cap">LESSON TYPES</div>' + multi("mlt", DLT, p.lesson_types) + '<div class="cap">WHO YOU WORK WITH</div>' + multi("mlv", DLV, p.levels) + '<div id="pm" class="small"></div><button class="btn" id="psv" style="margin-top:8px">Save profile</button></div>' +
+      '<div class="card"><h3 style="margin-top:0">Videos and links</h3><div id="vl"></div><input id="vt" placeholder="Title"><input id="vu" placeholder="Link, YouTube or Instagram"><input id="vn" placeholder="Short note (optional)"><div id="vm" class="err small"></div><button class="btn ghost" id="va">Add video link</button></div>');
+    document.querySelectorAll("#msp button,#mlt button,#mlv button").forEach(function (b) { b.onclick = function () { var id = b.parentNode.id, arr = id === "msp" ? p.specialties : id === "mlt" ? p.lesson_types : p.levels, i = arr.indexOf(b.dataset.o); if (i >= 0) arr.splice(i, 1); else arr.push(b.dataset.o); b.style.background = i >= 0 ? "" : "var(--fill)"; b.style.color = i >= 0 ? "" : "#fff"; }; });
+    document.querySelectorAll("#pc button").forEach(function (b) { b.onclick = function () { p.avatar_color = b.dataset.c; document.querySelectorAll("#pc button").forEach(function (x) { x.style.borderColor = x === b ? "var(--text)" : "transparent"; }); }; });
+    function vlist() {
+      $("#vl").innerHTML = vids.length ? vids.map(function (v) { return '<div class="row c" style="padding:6px 0;border-bottom:1px solid var(--line)"><div class="grow"><b>' + esc(v.title) + '</b><div class="small muted" style="word-break:break-all">' + esc(v.url) + '</div></div><button class="pill" data-d="' + v.id + '">Remove</button></div>'; }).join("") : '<p class="small muted">No videos yet.</p>';
+      $("#vl").querySelectorAll("[data-d]").forEach(function (b) { b.onclick = function () { delRow("coach_videos", b.dataset.d).then(function () { vids = vids.filter(function (v) { return v.id !== b.dataset.d; }); vlist(); }); }; });
+    }
+    vlist();
+    $("#va").onclick = function () {
+      var t = $("#vt").value.trim(), u = $("#vu").value.trim(); if (!t || !u) { $("#vm").textContent = "Add a title and a link."; return; }
+      if (!/^https?:\/\//i.test(u)) u = "https://" + u;
+      if (vids.length >= 20) { $("#vm").textContent = "You can add up to 20."; return; }
+      var row = { id: newId(), coach_id: me, title: t.slice(0, 80), url: u.slice(0, 500), note: $("#vn").value.trim().slice(0, 200) };
+      upsertRow("coach_videos", [row]).then(function () { vids.unshift(row); $("#vt").value = $("#vu").value = $("#vn").value = ""; $("#vm").textContent = ""; vlist(); }).catch(function (e) { $("#vm").textContent = e.message; });
+    };
+    $("#psv").onclick = function () {
+      var row = { coach_id: me, listed: $("#pl").checked, accepting: $("#pa").checked, headline: $("#ph").value.trim().slice(0, 100), bio: $("#pb").value.trim().slice(0, 1200), city: $("#pcty").value.trim(), state: $("#pst").value.trim(), sports: p.sports || ["Tennis"], specialties: p.specialties, levels: p.levels, lesson_types: p.lesson_types, years: $("#py").value === "" ? null : Math.max(0, Math.min(70, +$("#py").value)), rate_note: $("#pr").value.trim().slice(0, 60), avatar_color: String(p.avatar_color) };
+      $("#psv").disabled = true;
+      (row.listed ? rpcCall("my_coach_code") : Promise.resolve()).then(function () { return upsertRow("coach_profiles", [row]); }).then(function () { $("#pm").className = "small"; $("#pm").textContent = row.listed ? "Saved. You are listed in Find a coach." : "Saved. Your profile is hidden."; $("#psv").disabled = false; })
+        .catch(function (e) { $("#pm").className = "err small"; $("#pm").textContent = e.message; $("#psv").disabled = false; });
+    };
+  }).catch(function (e) { app.innerHTML = shell('<p class="err">' + esc(e.message) + '</p>'); });
+}
+
+/* coach: public clinics */
+function myClinicsView() {
+  var me = S.session.user.id;
+  app.innerHTML = shell('<div class="hhead"><a class="small" href="#/">&larr; Home</a><h1>My clinics</h1></div>' + dtabs("myclinics") + '<button class="btn" id="nc">+ Add a public clinic</button><div id="mc"><p class="muted">Loading...</p></div>');
+  $("#nc").onclick = function () { clinicForm(null); };
+  Promise.all([api("public_clinics?coach_id=eq." + me + "&cancelled=eq.false&select=*&order=starts_at.asc"), api("clinic_signups?select=*&order=created_at.asc&limit=2000")]).then(function (r) {
+    var cl = r[0], su = r[1].filter(function (s) { return s.status !== "cancelled"; });
+    var box = $("#mc"); if (!box) return;
+    if (!cl.length) { box.innerHTML = '<div class="card empty">No public clinics yet. Add one and anyone using Sidebar can sign up. When it fills up, families join a waiting list.</div>'; return; }
+    box.innerHTML = '<div class="grid" style="margin-top:12px">' + cl.map(function (c, i) {
+      var mine = su.filter(function (s) { return s.clinic_id === c.id; }), inn = mine.filter(function (s) { return s.status === "confirmed"; }).length, w = mine.length - inn;
+      return '<a class="card" data-i="' + i + '" style="display:block;cursor:pointer;text-decoration:none;color:inherit"><div class="hd">' + esc(c.title) + '</div><div class="small">' + esc(whenLine(c)) + '</div><div class="small" style="color:var(--court);font-weight:700;margin-top:4px">' + inn + " of " + c.capacity + " in" + (w ? ", " + w + " waiting" : "") + '</div></a>';
+    }).join("") + '</div>';
+    box.querySelectorAll("[data-i]").forEach(function (el) { el.onclick = function () { var c = cl[+el.dataset.i]; signupsModal(c, su.filter(function (s) { return s.clinic_id === c.id; })); }; });
+  }).catch(function (e) { var b = $("#mc"); if (b) b.innerHTML = '<p class="err">' + esc(e.message) + '</p>'; });
+}
+function signupsModal(c, list) {
+  function draw(mod) {
+    var inn = list.filter(function (s) { return s.status === "confirmed"; }), w = list.filter(function (s) { return s.status === "waitlist"; });
+    function rows(a, wait) { return a.map(function (s) { return '<div class="row c" style="padding:8px 0;border-bottom:1px solid var(--line)"><div class="grow"><b>' + esc(s.player_name) + (s.player_age ? ", " + s.player_age : "") + '</b><div class="small muted">' + esc(s.contact) + '</div>' + (s.note ? '<div class="small muted">' + esc(s.note) + '</div>' : "") + '</div>' + (wait ? '<button class="pill" data-p="' + s.id + '" style="margin-right:6px">Let in</button>' : "") + '<button class="pill" data-r="' + s.id + '">Remove</button></div>'; }).join(""); }
+    $("#sg", mod).innerHTML = '<div class="cap">IN (' + inn.length + ' of ' + c.capacity + ')</div>' + (rows(inn, false) || '<p class="small muted">No one yet.</p>') + (w.length ? '<div class="cap" style="margin-top:10px">WAITING LIST</div>' + rows(w, true) : "");
+    $("#sg", mod).querySelectorAll("[data-p],[data-r]").forEach(function (b) {
+      b.onclick = function () {
+        var id = b.dataset.p || b.dataset.r;
+        rpcCall(b.dataset.p ? "promote_clinic_signup" : "cancel_clinic_signup", { signup: id }).then(function () { return api("clinic_signups?clinic_id=eq." + c.id + "&status=neq.cancelled&select=*&order=created_at.asc"); }).then(function (n) { list = n; draw(mod); });
+      };
+    });
+  }
+  var mod = openModal('<h3 style="margin:0">' + esc(c.title) + '</h3><div class="small muted">' + esc(whenLine(c)) + '</div><div id="sg"></div><button class="btn ghost" id="ce" style="margin-top:12px">Edit clinic</button>', function () { myClinicsView(); });
+  draw(mod);
+  $("#ce", mod).onclick = function () { mod.remove(); clinicForm(c); };
+}
+function clinicForm(c) {
+  var me = S.session.user.id, d = c ? new Date(c.starts_at) : new Date(Date.now() + 7 * 864e5);
+  var loc = new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
+  var mod = openModal('<h3 style="margin:0 0 8px;font-size:20px">' + (c ? "Edit clinic" : "New public clinic") + '</h3><input id="kt" maxlength="80" placeholder="Title, like Saturday Red Ball Clinic" value="' + esc(c ? c.title : "") + '"><textarea id="kd" rows="3" maxlength="600" placeholder="What families should know">' + esc(c ? c.description : "") + '</textarea><input id="ks" type="datetime-local" value="' + loc + '"><div class="row" style="gap:8px"><select id="km">' + [45, 60, 75, 90, 120, 180].map(function (m) { return '<option value="' + m + '"' + ((c ? c.minutes : 90) === m ? " selected" : "") + '>' + (m >= 60 ? hrsText(m) + " hr" : m + " min") + '</option>'; }).join("") + '</select><input id="kc" type="number" min="1" max="200" placeholder="Capacity" value="' + (c ? c.capacity : 8) + '"></div><input id="kl" maxlength="100" placeholder="Courts or club" value="' + esc(c ? c.location : "") + '"><input id="ky" maxlength="60" placeholder="City" value="' + esc(c ? c.city : "") + '"><input id="kp" maxlength="60" placeholder="Price, like $30 per player" value="' + esc(c ? c.price_note : "") + '"><div class="row" style="gap:8px"><input id="kv" maxlength="40" placeholder="Level" value="' + esc(c ? c.level : "") + '"><input id="ka" maxlength="40" placeholder="Ages, like 8 to 11" value="' + esc(c ? c.age_note : "") + '"></div><div id="ke" class="err small"></div><button class="btn" id="kg">Save clinic</button>' + (c ? '<button class="btn ghost" id="kx" style="margin-top:8px;color:#c0392b;border-color:#c0392b">Cancel this clinic</button>' : ""), function () { myClinicsView(); });
+  function save(cancelled) {
+    var t = $("#kt", mod).value.trim(); if (!t) { $("#ke", mod).textContent = "Add a title."; return; }
+    var row = { id: c ? c.id : newId(), coach_id: me, title: t, description: $("#kd", mod).value.trim(), starts_at: new Date($("#ks", mod).value).toISOString(), minutes: +$("#km", mod).value, location: $("#kl", mod).value.trim(), city: $("#ky", mod).value.trim(), capacity: Math.max(1, Math.min(200, +$("#kc", mod).value || 8)), price_note: $("#kp", mod).value.trim(), level: $("#kv", mod).value.trim(), age_note: $("#ka", mod).value.trim(), cancelled: !!cancelled };
+    upsertRow("public_clinics", [row]).then(function () { mod.remove(); myClinicsView(); }).catch(function (e) { $("#ke", mod).textContent = e.message; });
+  }
+  $("#kg", mod).onclick = function () { save(false); };
+  if (c) $("#kx", mod).onclick = function () { if (confirm("Cancel this clinic? It disappears for families.")) save(true); };
+}
 </script>
 </body>
 </html>
