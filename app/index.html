@@ -172,7 +172,7 @@ function rich(t) { // bold and bullets from the app's notes
 function markLines(t) { return String(t || "").replace(/\*\*(.+?)\*\*/g, "$1"); }
 
 /* ---------- session and API ---------- */
-var S = { session: null, profile: null, students: [], lessons: [], notes: [], tourn: [], coaches: {}, requests: [], joins: [], charges: [], payments: [], lessonPays: [], rates: [], payInfos: [], expenses: [], otherIncome: [], recurring: [], coachCode: "", cache: {}, signed: {} };
+var S = { session: null, profile: null, students: [], lessons: [], notes: [], tourn: [], coaches: {}, requests: [], joins: [], charges: [], payments: [], lessonPays: [], rates: [], payInfos: [], expenses: [], otherIncome: [], recurring: [], groups: [], attendance: [], coachCode: "", cache: {}, signed: {} };
 try { S.session = JSON.parse(localStorage.getItem("sidebar.web.session") || "null"); } catch (e) {}
 function saveSession(s) {
   S.session = s;
@@ -343,6 +343,8 @@ function render() {
   if (h2[0] === "books" && S.profile.role === "coach") return booksView();
   if (h2[0] === "feed" && S.profile.role === "coach") return feedView(h2[1]);
   if (h2[0] === "recurring" && S.profile.role === "coach") return recurringView();
+  if (h2[0] === "groups" && S.profile.role === "coach") return groupsView();
+  if (h2[0] === "g" && h2[1] && S.profile.role === "coach") return groupView(h2[1]);
   if (h2[0] === "signup") return signupView();
   return homeView();
 }
@@ -417,7 +419,7 @@ function homeView() {
     html += '<div class="card empty">' + (coach ? "No students yet. Add them in the Sidebar app on your phone, and they show up here." : "Nothing here yet. Use the invite code your coach sent you.") + '</div>';
   } else if (coach) {
     var joined = S.students.filter(function (s) { return s.claimed; }).length, waiting = S.students.length - joined;
-    html += '<div id="today"></div><div id="wk"></div>';
+    html += '<div id="today"></div><div id="wk"></div><div id="grp"></div>';
     html += '<div class="row c" style="margin:20px 0 8px"><div style="font-weight:700;font-size:17px">Your students</div><div class="small muted" style="margin-left:8px">' + joined + ' active' + (waiting ? ", " + waiting + " invited" : "") + '</div></div>';
     html += '<div class="grid">' + S.students.map(function (s) {
       var body = s.claimed
@@ -445,7 +447,7 @@ function homeView() {
   html += '<div id="share"></div>';
   app.innerHTML = shell(html);
   if (S.students.length) weekSection($("#wk"));
-  if (coach && S.students.length) todayCards($("#today"));
+  if (coach && S.students.length) { todayCards($("#today")); groupsHome($("#grp")); }
   homeExtras(coach);
 }
 
@@ -478,7 +480,7 @@ function statCard(href, icon, title, value, caption, tint, prog) {
 function nextUpHtml(sn) {
   var l = sn.next;
   if (!l) return '<a class="card" href="#/cal" style="display:block;text-decoration:none;color:inherit"><div class="cap" style="color:var(--court)">NEXT UP</div><div style="font-size:22px;font-weight:800">Nothing booked</div><div class="small muted">Open the calendar to schedule a lesson.</div></a>';
-  var col = colorOf(sids(l)[0]), names = namesOf(l).join(", ") || l.kind, t0 = new Date(l.start_at).getTime(), playing = t0 <= Date.now();
+  var col = lcolor(l), names = ltitle(l), t0 = new Date(l.start_at).getTime(), playing = t0 <= Date.now();
   var dl = sameDay(l.start_at, new Date()) ? "Today" : sameDay(l.start_at, new Date(Date.now() + 864e5)) ? "Tomorrow" : new Date(l.start_at).toLocaleDateString(undefined, { weekday: "long", month: "short", day: "numeric" });
   var m = Math.round((t0 - Date.now()) / 60000), cd = "";
   if (playing) cd = "Ends " + fmtTime(lEnd(l)); else if (m > 0 && m < 720) cd = "in " + (m >= 60 ? Math.floor(m / 60) + " hr" + (m % 60 ? " " + (m % 60) + " min" : "") : m + " min");
@@ -606,8 +608,8 @@ function weekSection(box) {
     var today = sameDay(d, new Date());
     return '<div class="row" style="padding:8px 12px;border-top:1px solid var(--line)"><div style="width:38px;text-align:center;flex:none"><div class="cap" style="' + (today ? "color:var(--court)" : "") + '">' + d.toLocaleDateString(undefined, { weekday: "short" }).toUpperCase() + '</div><div class="dn' + (today ? " sel today" : "") + '" style="margin:2px auto 0;font-size:14px">' + d.getDate() + '</div></div><div class="grow">' +
       (ls.length ? ls.map(function (l) {
-        var col = colorOf(sids(l)[0]);
-        return '<button class="ag" data-l="' + l.id + '" style="padding:8px;margin:0 0 6px;background:' + col + '24;border-left:4px solid ' + col + ';border-radius:8px' + (isPast(l) ? ";opacity:.6" : "") + '"><div class="mid"><div class="k" style="font-size:14px">' + esc(namesOf(l).join(", ") || l.kind) + '</div><div class="ln" style="margin:0">' + esc(rangeText(l)) + ', ' + esc(l.kind) + '</div>' + (l.location ? '<div class="ln">' + ico("pin", 12) + esc(l.location) + '</div>' : "") + '</div></button>';
+        var col = lcolor(l);
+        return '<button class="ag" data-l="' + l.id + '" style="padding:8px;margin:0 0 6px;background:' + col + '24;border-left:4px solid ' + col + ';border-radius:8px' + (isPast(l) ? ";opacity:.6" : "") + '"><div class="mid"><div class="k" style="font-size:14px">' + esc(ltitle(l)) + '</div>' + (gline(l) ? '<div class="ln" style="margin:0;color:var(--muted)">' + esc(gline(l)) + '</div>' : "") + '<div class="ln" style="margin:0">' + esc(rangeText(l)) + ', ' + esc(l.kind) + '</div>' + (l.location ? '<div class="ln">' + ico("pin", 12) + esc(l.location) + '</div>' : "") + '</div></button>';
       }).join("") : '<div class="muted" style="padding:8px 0;opacity:.7">Free</div>') + '</div></div>';
   }).join("");
   box.innerHTML = '<div class="row c" style="margin:20px 0 8px"><div class="grow"><div style="font-weight:700;font-size:17px">This week</div><div class="small muted">' + (total ? total + (total === 1 ? " lesson" : " lessons") : "Nothing scheduled") + '</div></div><a href="#/cal" style="font-weight:600;font-size:14px;text-decoration:none">Full calendar</a></div><div style="background:var(--card);border-radius:16px;overflow:hidden">' + rows + '</div>';
@@ -652,11 +654,11 @@ function openLesson(l) {
   var reqs = S.requests.filter(function (r) { return r.lesson_id === l.id; });
   var myKid = (S.profile && S.profile.role !== "coach" && !isPast(l)) ? sids(l).filter(function (i) { return !!studentById(i); })[0] : null;
   var notes = S.notes.filter(function (n) { return sameDay(n.note_date, d) && sids(l).indexOf(n.student_id) >= 0; });
-  var mod = openModal('<div class="row"><div class="db"><div><small>' + esc(d.toLocaleDateString(undefined, { weekday: "short" }).toUpperCase()) + '</small>' + d.getDate() + '</div></div><div class="grow"><h3 style="font-size:19px">' + esc(l.kind) + '</h3><div class="small muted">' + esc(fmtDate(d, { weekday: "long", month: "long", day: "numeric" })) + ', ' + esc(rangeText(l)) + '</div>' +
+  var mod = openModal('<div class="row"><div class="db"><div><small>' + esc(d.toLocaleDateString(undefined, { weekday: "short" }).toUpperCase()) + '</small>' + d.getDate() + '</div></div><div class="grow"><h3 style="font-size:19px">' + esc(groupOf(l) ? ltitle(l) : l.kind) + '</h3><div class="small muted">' + esc(fmtDate(d, { weekday: "long", month: "long", day: "numeric" })) + ', ' + esc(rangeText(l)) + '</div>' +
     (l.location ? '<div class="small muted" style="display:flex;gap:5px;align-items:center;margin-top:2px">' + ico("pin", 13) + esc(l.location) + '</div>' : "") +
     (names.length ? '<div class="small" style="font-weight:600;margin-top:2px">' + esc(names.join(", ")) + '</div>' : "") +
     (l.focus ? '<div style="margin-top:6px"><span class="tag">Focus: ' + esc(l.focus) + '</span></div>' : "") + '</div></div>' +
-    payBlock(l) + checklist("Lesson plan", planOf(l)) + checklist("Homework", hwOf(l)) +
+    attBlock(l) + payBlock(l) + checklist("Lesson plan", planOf(l)) + checklist("Homework", hwOf(l)) +
     (l.recap ? '<h3 style="margin-top:14px">Recap</h3><div class="recap">' + esc(l.recap) + '</div>' : "") +
     (notes.length ? '<h3 style="margin-top:14px">Lesson notes from this day</h3>' + notes.map(function (n) { return '<div style="margin:6px 0"><b>' + esc(n.title) + '</b><div class="small muted">' + esc(plain(n.summary).slice(0, 220)) + '</div></div>'; }).join("") : "") +
     '<div class="cerr err small"></div>' +
@@ -665,6 +667,7 @@ function openLesson(l) {
   mod.addEventListener("click", function (e) {
     var li = e.target.closest("li[data-i]"); if (li) return toggleCheck(l, li.dataset.i, li, mod);
     if (e.target.id === "ics") return downloadICS(l);
+    if (e.target.id === "attb") return openAttendance(l, function () { mod.remove(); openLesson(l); });
     var ps = e.target.closest("[data-ps]");
     if (ps) { ps.disabled = true; return setLessonPay(l, ps.dataset.sid, ps.dataset.ps).then(function () { var b = $("#paybox", mod); if (b) b.outerHTML = payBlock(l); }).catch(function (er) { alert(er.message); }); }
     if (e.target.id === "rq") {
@@ -698,8 +701,8 @@ function loadMoney() {
   return Promise.all([soft(api("charges?select=*&order=created_at.asc&limit=2000")), soft(api("payments?select=*&order=paid_on.desc&limit=3000")), soft(api("lesson_pay?select=*&limit=5000")), soft(api("coach_pay_info?select=*&limit=20")), soft(api("rate_cards?select=*&order=created_at.asc&limit=200"))]).then(function (r) {
     if (r[0]) S.charges = r[0]; if (r[1]) S.payments = r[1]; if (r[2]) S.lessonPays = r[2]; if (r[3]) S.payInfos = r[3]; if (r[4]) S.rates = r[4];
     if (!S.profile || S.profile.role !== "coach") return;
-    return Promise.all([soft(api("expenses?select=*&order=spent_on.desc&limit=5000")), soft(api("other_income?select=*&order=received_on.desc&limit=5000")), soft(api("recurring_charges?select=*&order=created_at.asc&limit=500"))]).then(function (q) {
-      if (q[0]) S.expenses = q[0]; if (q[1]) S.otherIncome = q[1]; if (q[2]) S.recurring = q[2];
+    return Promise.all([soft(api("expenses?select=*&order=spent_on.desc&limit=5000")), soft(api("other_income?select=*&order=received_on.desc&limit=5000")), soft(api("recurring_charges?select=*&order=created_at.asc&limit=500")), soft(api("class_groups?select=*&order=created_at.asc&limit=500")), soft(api("attendance?select=*&limit=50000"))]).then(function (q) {
+      if (q[0]) S.expenses = q[0]; if (q[1]) S.otherIncome = q[1]; if (q[2]) S.recurring = q[2]; if (q[3]) S.groups = q[3]; if (q[4]) S.attendance = q[4];
       return runRecurring();
     });
   });
@@ -1227,7 +1230,7 @@ function monthGrid(month, marks, sel) {
 }
 function marksFor(ls) {
   var m = {};
-  ls.forEach(function (l) { var k = new Date(l.start_at).toDateString(); m[k] = m[k] || []; sids(l).forEach(function (i) { var c = colorOf(i); if (m[k].indexOf(c) < 0) m[k].push(c); }); });
+  ls.forEach(function (l) { var k = new Date(l.start_at).toDateString(); m[k] = m[k] || []; if (groupOf(l)) { if (m[k].indexOf(GBLUE) < 0) m[k].push(GBLUE); return; } sids(l).forEach(function (i) { var c = colorOf(i); if (m[k].indexOf(c) < 0) m[k].push(c); }); });
   return m;
 }
 function lessonsTab(id, box) {
@@ -1432,10 +1435,10 @@ function calLessons() {
   return S.lessons.filter(function (l) { return !keys.length || sids(l).some(function (i) { return calFilter[i]; }); });
 }
 function agendaCard(l) {
-  var col = colorOf(sids(l)[0]), names = namesOf(l), pl = planOf(l).length, hw = hwOf(l).length;
+  var col = lcolor(l), names = groupOf(l) ? [gline(l)] : namesOf(l), pl = planOf(l).length, hw = hwOf(l).length;
   var counts = []; if (pl) counts.push(pl + " in the plan"); if (hw) counts.push(hw + " homework");
   var d = new Date(l.start_at);
-  return '<button class="ag" data-l="' + l.id + '" style="' + (isPast(l) ? "opacity:.65" : "") + '"><div class="tm">' + esc(fmtTime(d)) + '<small>' + esc(fmtTime(lEnd(l))) + '</small></div><div class="bar4" style="background:' + col + '"></div><div class="mid"><div class="k">' + esc(l.kind) + (l.series_id ? ' <span class="muted" style="margin-left:4px">' + ico("repeat", 12) + '</span>' : "") + '</div>' +
+  return '<button class="ag" data-l="' + l.id + '" style="' + (isPast(l) ? "opacity:.65" : "") + '"><div class="tm">' + esc(fmtTime(d)) + '<small>' + esc(fmtTime(lEnd(l))) + '</small></div><div class="bar4" style="background:' + col + '"></div><div class="mid"><div class="k">' + esc(groupOf(l) ? ltitle(l) : l.kind) + (l.series_id ? ' <span class="muted" style="margin-left:4px">' + ico("repeat", 12) + '</span>' : "") + '</div>' +
     (names.length ? '<div class="nm" style="color:' + col + '">' + esc(names.join(", ")) + '</div>' : "") +
     (l.location ? '<div class="ln">' + ico("pin", 12) + esc(l.location) + '</div>' : "") + (l.focus ? '<div class="ln">' + esc(l.focus) + '</div>' : "") +
     (counts.length ? '<div class="ln">' + ico("list", 12) + esc(counts.join(", ")) + '</div>' : "") +
@@ -1531,13 +1534,181 @@ function drawPlanner(box, ls) {
   }); flush();
   var blocks = placed.map(function (p) {
     var d = new Date(p.l.start_at), top = ((d.getHours() - first) * 60 + d.getMinutes()) / 60 * H + 13, ht = Math.max(p.l.minutes / 60 * H - 3, 30);
-    var names = namesOf(p.l), col = colorOf(sids(p.l)[0]);
+    var names = groupOf(p.l) ? [ltitle(p.l)] : namesOf(p.l), col = lcolor(p.l);
     var w = "calc((100% - 70px) / " + p.n + " - 3px)";
     return '<button class="blk" data-l="' + p.l.id + '" style="top:' + top + 'px;height:' + ht + 'px;width:' + w + ';left:calc(62px + (100% - 70px) / ' + p.n + ' * ' + p.col + ');border-color:' + col + ';background:' + col + '2e' + (isPast(p.l) ? ";opacity:.6" : "") + '"><b>' + esc(names.join(", ") || p.l.kind) + '</b>' + (ht > 44 ? '<small>' + esc(p.l.kind + ", " + rangeText(p.l)) + '</small>' : "") + (ht > 64 && p.l.location ? '<small>' + esc(p.l.location) + '</small>' : "") + '</button>';
   }).join("");
   var nowLine = "";
   if (sameDay(calDay, new Date())) { var n = new Date(); var t = ((n.getHours() - first) * 60 + n.getMinutes()) / 60 * H + 13; if (t > 0) nowLine = '<div class="now" style="top:' + t + 'px"></div>'; }
   box.innerHTML = '<div class="planner">' + rows + blocks + nowLine + (ls.length ? "" : '<div class="empty" style="position:absolute;left:0;right:0;top:80px">Open day.</div>') + '</div>';
+}
+
+/* ---------- groups and attendance (coach) ---------- */
+var DAYN = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"], GBLUE = "#3373f2";
+var GKINDS = ["Junior clinic", "Adult clinic", "Group lesson", "Camp", "Team practice", "Match play"];
+function groupOf(l) { return l.group_id ? S.groups.filter(function (g) { return g.id === l.group_id; })[0] : null; }
+function attRow(l, sid) { return S.attendance.filter(function (a) { return a.lesson_id === l.id && a.student_id === sid; })[0]; }
+function attTaken(l) { return S.attendance.some(function (a) { return a.lesson_id === l.id; }); }
+function attMark(l, sid) { var r = attRow(l, sid); if (r) return r.present; return l.group_id && sids(l).indexOf(sid) >= 0 ? true : null; }
+function hereCount(l) { return sids(l).filter(function (i) { return studentById(i) && attMark(l, i) === true; }).length; }
+function rosterCount(l) { return sids(l).filter(studentById).length; }
+function gline(l) {
+  if (!groupOf(l)) return null;
+  var all = sids(l).filter(studentById); if (!all.length) return "No players yet";
+  var here = all.filter(function (i) { return attMark(l, i) === true; }).map(stuName);
+  return here.length ? here.join(", ") : "No one marked present";
+}
+function ltitle(l) { var g = groupOf(l); return g && g.name ? g.name : (namesOf(l).join(", ") || l.kind); }
+function lcolor(l) { return groupOf(l) ? GBLUE : colorOf(sids(l)[0]); }
+function gtime(m) { return fmtTime(new Date(2000, 0, 1, Math.floor(m / 60), m % 60)); }
+function gsched(g) { return (g.weekdays.length ? g.weekdays.slice().sort(function (a, b) { return a - b; }).map(function (d) { return DAYN[d - 1]; }).join(", ") : "No set days") + " at " + gtime(g.start_minutes); }
+function gmembers(g) { return (g.member_ids || []).map(studentById).filter(Boolean); }
+function gsessions(g) { return S.lessons.filter(function (l) { return l.group_id === g.id; }).sort(function (a, b) { return new Date(a.start_at) - new Date(b.start_at); }); }
+function gnext(g) { return gsessions(g).filter(function (l) { return !isPast(l); })[0]; }
+function gcard(g) {
+  var m = gmembers(g), nx = gnext(g), names = m.slice(0, 2).map(function (s) { return s.name; }).join(", ") + (m.length > 2 ? " +" + (m.length - 2) : "");
+  return '<a class="card sc" href="#/g/' + g.id + '" style="border-left:5px solid ' + GBLUE + '"><div class="row c"><div class="av" style="background:' + GBLUE + '33;color:' + GBLUE + '">' + ico("people", 18) + '</div><div class="grow"><div class="hd">' + esc(g.name) + '</div><div class="sub">' + esc(gsched(g)) + (g.location ? ", " + esc(g.location) : "") + '</div></div><span class="chev">' + ico("chev") + '</span></div>' +
+    '<div class="small muted" style="margin-top:8px">' + (m.length ? esc(names) : "No players yet") + '</div>' + (nx ? '<div class="small" style="margin-top:2px">Next: ' + esc(whenText(nx)) + '</div>' : "") + '</a>';
+}
+function groupsHome(box) {
+  if (!box) return;
+  var gs = S.groups.filter(function (g) { return g.active !== false; });
+  box.innerHTML = '<div class="row c" style="margin:20px 0 8px"><div class="grow"><div style="font-weight:700;font-size:17px">Groups</div><div class="small muted">' + (gs.length ? gs.length + (gs.length === 1 ? " group" : " groups") : "Clinics, camps and team practices") + '</div></div><a href="#/groups" style="font-weight:600;font-size:14px;text-decoration:none">' + (gs.length ? "All groups" : "Set one up") + '</a></div>' + (gs.length ? '<div class="grid">' + gs.slice(0, 4).map(gcard).join("") + '</div>' : "");
+}
+function makeSessions(g, weeks, fromDay) {
+  var from = startOfDay(fromDay || new Date()), now = Date.now(), series = newId(), rows = [], me = S.session.user.id;
+  for (var o = 0; o < weeks * 7; o++) {
+    var day = new Date(from); day.setDate(from.getDate() + o);
+    if (g.weekdays.indexOf(day.getDay() + 1) < 0) continue;
+    var at = new Date(day); at.setHours(Math.floor(g.start_minutes / 60), g.start_minutes % 60, 0, 0);
+    if (at.getTime() <= now) continue;
+    if (S.lessons.some(function (l) { return l.group_id === g.id && sameDay(l.start_at, day); })) continue;
+    rows.push({ id: newId(), coach_id: me, start_at: at.toISOString(), minutes: g.minutes, location: g.location, kind: g.kind, focus: "", series_id: series, group_id: g.id });
+  }
+  if (!rows.length) return Promise.resolve(0);
+  var links = []; rows.forEach(function (r) { g.member_ids.forEach(function (sid) { links.push({ lesson_id: r.id, student_id: sid }); }); });
+  return api("lessons", { json: rows, prefer: "return=minimal" }).then(function () { return links.length ? api("lesson_students", { json: links, prefer: "return=minimal" }) : null; }).then(function () {
+    rows.forEach(function (r) { r.lesson_students = g.member_ids.map(function (s) { return { student_id: s }; }); r.items = []; r.recap = ""; S.lessons.push(r); });
+    S.lessons.sort(function (a, b) { return new Date(a.start_at) - new Date(b.start_at); });
+    return rows.length;
+  });
+}
+/* Upcoming sessions follow the group: roster always, time and length when they still matched the old schedule, place when it changed. */
+function alignGroup(g, old) {
+  var jobs = [];
+  S.lessons.filter(function (l) { return l.group_id === g.id && !isPast(l) && !attTaken(l); }).forEach(function (l) {
+    var d = new Date(l.start_at), cur = d.getHours() * 60 + d.getMinutes(), patch = {};
+    if (cur !== g.start_minutes && (!old || cur === old.start_minutes)) { var n = new Date(d); n.setHours(Math.floor(g.start_minutes / 60), g.start_minutes % 60, 0, 0); patch.start_at = n.toISOString(); }
+    if (l.minutes !== g.minutes && (!old || l.minutes === old.minutes)) patch.minutes = g.minutes;
+    if ((l.location || "") !== (g.location || "") && (!old || (old.location || "") !== (g.location || ""))) patch.location = g.location;
+    if (Object.keys(patch).length) { Object.keys(patch).forEach(function (k) { l[k] = patch[k]; }); jobs.push(patchRow("lessons", l.id, patch)); }
+    var have = sids(l), add = g.member_ids.filter(function (x) { return have.indexOf(x) < 0; }), drop = have.filter(function (x) { return g.member_ids.indexOf(x) < 0; });
+    if (add.length) jobs.push(api("lesson_students", { json: add.map(function (s) { return { lesson_id: l.id, student_id: s }; }), prefer: "return=minimal" }));
+    drop.forEach(function (s) { jobs.push(api("lesson_students?lesson_id=eq." + l.id + "&student_id=eq." + s, { method: "DELETE", prefer: "return=minimal" })); });
+    if (add.length || drop.length) l.lesson_students = g.member_ids.map(function (s) { return { student_id: s }; });
+  });
+  return Promise.all(jobs);
+}
+function setPresent(l, sid, present) {
+  var row = { lesson_id: l.id, student_id: sid, coach_id: S.session.user.id, present: present }, ex = attRow(l, sid);
+  if (ex) ex.present = present; else S.attendance.push(row);
+  return upsertRow("attendance", [row]);
+}
+function attBlock(l) {
+  if (!l.group_id || S.profile.role !== "coach") return "";
+  return '<button class="btn" id="attb" style="margin-top:12px">Check who showed (' + hereCount(l) + ' of ' + rosterCount(l) + ' here)</button>';
+}
+function openAttendance(l, onclose) {
+  var mod = openModal('<div id="att"></div>', onclose);
+  function draw() {
+    var ids = sids(l).filter(studentById);
+    $("#att", mod).innerHTML = '<h3 style="font-size:19px;margin:0">' + esc(ltitle(l)) + '</h3><div class="small muted">' + esc(whenText(l)) + ', ' + esc(rangeText(l)) + '</div>' +
+      '<div class="row c" style="justify-content:space-between;margin:12px 0"><b>' + hereCount(l) + ' of ' + ids.length + ' here</b><span><button class="pill" data-all="1">Everyone here</button> <button class="pill" data-all="0">No one</button></span></div>' +
+      (ids.length ? ids.map(function (i) { return '<label class="pk" style="padding:6px 0"><input type="checkbox" data-s="' + i + '"' + (attMark(l, i) === true ? " checked" : "") + '> <span>' + esc(stuName(i)) + '</span></label>'; }).join("") : '<div class="small muted">No players on this session yet.</div>') +
+      '<div class="small muted" style="margin-top:8px">Everyone starts as here. Untick whoever missed.</div><div class="err small" id="ate"></div>';
+  }
+  draw();
+  mod.addEventListener("change", function (e) {
+    var cb = e.target.closest("input[data-s]"); if (!cb) return;
+    setPresent(l, cb.dataset.s, cb.checked).then(draw).catch(function (er) { var n = $("#ate", mod); if (n) n.textContent = er.message; });
+  });
+  mod.addEventListener("click", function (e) {
+    var b = e.target.closest("[data-all]"); if (!b) return;
+    var on = b.dataset.all === "1", ids = sids(l).filter(studentById);
+    Promise.all(ids.map(function (i) { return setPresent(l, i, on); })).then(draw).catch(function (er) { var n = $("#ate", mod); if (n) n.textContent = er.message; });
+  });
+}
+function groupForm(g0, done) {
+  var isNew = !g0, g = g0 || { id: newId(), name: "", kind: "Junior clinic", minutes: 60, location: "", weekdays: [], start_minutes: 960, price_cents: 0, price_mode: "per_session", capacity: null, note: "", member_ids: [], active: true };
+  var days = g.weekdays.slice(), members = g.member_ids.slice();
+  var tv = ("0" + Math.floor(g.start_minutes / 60)).slice(-2) + ":" + ("0" + (g.start_minutes % 60)).slice(-2);
+  var mins = [30, 45, 60, 75, 90, 120, 150, 180];
+  var mod = openModal('<h3 style="font-size:19px;margin:0 0 8px">' + (isNew ? "New group" : "Edit group") + '</h3>' +
+    '<input id="gn" placeholder="Group name, like Elite B&amp;T" value="' + esc(g.name) + '">' +
+    '<select id="gk">' + GKINDS.map(function (k) { return '<option' + (k === g.kind ? " selected" : "") + '>' + k + '</option>'; }).join("") + '</select>' +
+    '<div class="cap" style="margin-top:8px">Days</div><div class="chips" id="gd">' + DAYN.map(function (n, i) { return '<button type="button" class="chp' + (days.indexOf(i + 1) >= 0 ? " on" : "") + '" data-d="' + (i + 1) + '">' + n + '</button>'; }).join("") + '</div>' +
+    '<div class="row" style="gap:8px"><div class="grow"><div class="cap">Starts at</div><input id="gt" type="time" value="' + tv + '"></div><div class="grow"><div class="cap">Length</div><select id="gl">' + mins.map(function (m) { return '<option value="' + m + '"' + (m === g.minutes ? " selected" : "") + '>' + (m >= 60 ? hrsText(m) + " hr" : m + " min") + '</option>'; }).join("") + '</select></div></div>' +
+    (isNew ? '<div class="cap">Start date</div><input id="gs" type="date" value="' + dayStr() + '">' : "") +
+    '<input id="gp" placeholder="Location, like Court 4" value="' + esc(g.location) + '">' +
+    '<div class="row" style="gap:8px"><select id="gm" class="grow">' + opts({ per_session: "Per session", monthly: "Monthly", club: "Club pays me", free: "No charge" }, g.price_mode) + '</select><input id="gc" class="grow" inputmode="decimal" placeholder="Price" value="' + (g.price_cents ? g.price_cents / 100 : "") + '"></div>' +
+    '<input id="gx" inputmode="numeric" placeholder="Max players (optional)" value="' + (g.capacity || "") + '">' +
+    '<textarea id="go" rows="2" placeholder="Note for you (families never see this)">' + esc(g.note) + '</textarea>' +
+    '<div class="cap" style="margin-top:8px">Players</div><div class="pklist" id="gr" style="max-height:200px">' + (S.students.length ? S.students.map(function (s) { return '<label class="pk"><input type="checkbox" data-m="' + s.id + '"' + (members.indexOf(s.id) >= 0 ? " checked" : "") + '> <span>' + esc(s.name) + '</span></label>'; }).join("") : '<div class="small muted">No students yet.</div>') + '</div>' +
+    '<div class="small muted">Everyone checked is in every session until you untick them on the day.</div><div class="err small" id="ge"></div><button class="btn" id="gsave" style="margin-top:10px">' + (isNew ? "Create group" : "Save changes") + '</button>', done);
+  mod.addEventListener("click", function (e) {
+    var d = e.target.closest("[data-d]");
+    if (d) { var n = +d.dataset.d, i = days.indexOf(n); if (i >= 0) days.splice(i, 1); else days.push(n); d.classList.toggle("on"); return; }
+    if (e.target.id !== "gsave") return;
+    var name = $("#gn", mod).value.trim(), err = $("#ge", mod);
+    if (!name) { err.textContent = "Give the group a name."; return; }
+    if (!days.length) { err.textContent = "Pick at least one day."; return; }
+    var t = ($("#gt", mod).value || "16:00").split(":"), ids = $$("input[data-m]", mod).filter(function (c) { return c.checked; }).map(function (c) { return c.dataset.m; });
+    var ng = { id: g.id, coach_id: S.session.user.id, name: name, kind: $("#gk", mod).value, minutes: +$("#gl", mod).value, location: $("#gp", mod).value.trim(), weekdays: days.sort(function (a, b) { return a - b; }), start_minutes: (+t[0]) * 60 + (+t[1] || 0), price_cents: toCents($("#gc", mod).value), price_mode: $("#gm", mod).value, capacity: parseInt($("#gx", mod).value, 10) || null, note: $("#go", mod).value.trim(), member_ids: ids, active: true };
+    var from = isNew && $("#gs", mod).value ? new Date($("#gs", mod).value + "T00:00:00") : new Date();
+    e.target.disabled = true; err.textContent = "";
+    upsertRow("class_groups", [ng]).then(function () {
+      var old = S.groups.filter(function (x) { return x.id === ng.id; })[0], i = S.groups.indexOf(old);
+      if (i >= 0) S.groups[i] = ng; else S.groups.push(ng);
+      return (old ? alignGroup(ng, old) : Promise.resolve()).then(function () { return makeSessions(ng, 8, from); });
+    }).then(function () { mod.remove(); location.hash = "#/g/" + ng.id; render(); }).catch(function (er) { err.textContent = er.message; e.target.disabled = false; });
+  });
+}
+function groupsView() {
+  var gs = S.groups.filter(function (g) { return g.active !== false; });
+  app.innerHTML = shell('<div class="hhead"><a class="small" href="#/">&larr; Home</a><h1>Groups</h1></div><button class="btn" id="ng">+ New group</button>' + (gs.length ? '<div class="grid" style="margin-top:12px">' + gs.map(gcard).join("") + '</div>' : '<div class="card empty" style="margin-top:12px">No groups yet. Make one for your clinic, camp or team practice, add players once and the sessions show up on your schedule.</div>'));
+  $("#ng").onclick = function () { groupForm(null, null); };
+}
+function groupView(id) {
+  var g = S.groups.filter(function (x) { return x.id === id; })[0];
+  if (!g) { location.hash = "#/groups"; return; }
+  var all = gsessions(g), up = all.filter(function (l) { return !isPast(l); }), past = all.filter(isPast).reverse().slice(0, 12), m = gmembers(g);
+  var row = function (l) {
+    var d = new Date(l.start_at), n = rosterCount(l), taken = attTaken(l) || isPast(l);
+    return '<button class="lr" data-l="' + l.id + '" style="border-left:4px solid ' + GBLUE + '"><div class="db"><div><small>' + esc(d.toLocaleDateString(undefined, { weekday: "short" }).toUpperCase()) + '</small>' + d.getDate() + '</div></div><div class="mid"><div class="k">' + esc(fmtDate(d, { weekday: "short", month: "short", day: "numeric" })) + ', ' + esc(rangeText(l)) + '</div><div class="w">' + (taken ? hereCount(l) + " of " + n + " here" : n + (n === 1 ? " player" : " players")) + (l.location ? ", " + esc(l.location) : "") + '</div></div><div class="rt"><span class="chev">' + ico("chev", 14) + '</span></div></button>';
+  };
+  var price = g.price_mode === "free" ? "No charge" : g.price_mode === "club" ? "Club pays me" : g.price_cents ? $d(g.price_cents) + (g.price_mode === "monthly" ? " per month" : " per session") : "No price set";
+  app.innerHTML = shell('<div class="hhead"><a class="small" href="#/groups">&larr; Groups</a><h1>' + esc(g.name) + '</h1><div class="small muted">' + esc(g.kind) + ', ' + esc(gsched(g)) + (g.location ? ', ' + esc(g.location) : '') + '</div></div>' +
+    '<div class="row" style="gap:8px"><button class="btn ghost" id="ged" style="margin:0;flex:1">Edit group</button><button class="btn ghost" id="gmore" style="margin:0;flex:1">Add 8 more weeks</button></div>' +
+    '<div class="card" style="margin-top:12px"><div class="row" style="justify-content:space-between"><b>Price</b><span>' + esc(price) + '</span></div>' + (g.capacity ? '<div class="row" style="justify-content:space-between;margin-top:6px"><b>Max players</b><span>' + g.capacity + '</span></div>' : "") + (g.note ? '<div class="small muted" style="margin-top:8px">' + esc(g.note) + '</div>' : "") + '<div class="small muted" style="margin-top:6px">Only you see price and notes.</div></div>' +
+    '<h2>Players (' + m.length + ')</h2><div class="card">' + (m.length ? m.map(function (s) { return '<div class="row c" style="margin:6px 0"><div class="av sm">' + esc(s.name.charAt(0).toUpperCase()) + '</div><a href="#/s/' + s.id + '/lessons" style="color:inherit;text-decoration:none"><b>' + esc(s.name) + '</b></a></div>'; }).join("") : '<div class="small muted">No players yet. Tap Edit group to add some.</div>') + '</div>' +
+    '<h2>Upcoming sessions</h2>' + (up.length ? up.map(row).join("") : '<div class="card empty">No upcoming sessions. Tap Add 8 more weeks.</div>') +
+    (past.length ? '<h2>Past sessions</h2>' + past.map(row).join("") : "") +
+    '<button class="btn ghost" id="gdel" style="margin-top:18px;color:var(--danger)">Delete group</button><div class="small muted">Deleting also removes its upcoming sessions. Past ones stay as history.</div><div class="err small" id="gerr"></div>');
+  $("#ged").onclick = function () { groupForm(g, null); };
+  $("#gmore").onclick = function () {
+    var last = all.length ? new Date(all[all.length - 1].start_at) : new Date();
+    this.disabled = true; makeSessions(g, 8, last > new Date() ? last : new Date()).then(function () { render(); }).catch(function (er) { $("#gerr").textContent = er.message; });
+  };
+  $("#gdel").onclick = function () {
+    if (!window.confirm("Delete " + g.name + " and its upcoming sessions?")) return;
+    var iso = new Date().toISOString();
+    api("lessons?group_id=eq." + g.id + "&start_at=gt." + iso, { method: "DELETE", prefer: "return=minimal" }).then(function () { return delRow("class_groups", g.id); }).then(function () {
+      S.lessons = S.lessons.filter(function (l) { return !(l.group_id === g.id && new Date(l.start_at) > new Date()); });
+      S.lessons.forEach(function (l) { if (l.group_id === g.id) l.group_id = null; });
+      S.groups = S.groups.filter(function (x) { return x.id !== g.id; }); location.hash = "#/groups"; render();
+    }).catch(function (er) { $("#gerr").textContent = er.message; });
+  };
+  app.onclick = function (e) { var b = e.target.closest("[data-l]"); if (b) { var l = S.lessons.filter(function (x) { return x.id === b.dataset.l; })[0]; if (l) openAttendance(l, function () { groupView(id); }); } };
 }
 
 /* ---------- start ---------- */
