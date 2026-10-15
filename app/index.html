@@ -147,6 +147,7 @@
 .hl { display:grid; grid-template-columns:1fr; gap:0 12px; }
 .brl { margin:10px 0; } .brl .bar { margin-top:5px; height:5px; }
 @media (min-width: 820px) { .g2, .hl { grid-template-columns:1fr 1fr; } }
+.stars { margin:10px 0; } .stars button { font-size:32px; line-height:1; border:0; background:none; color:var(--line); padding:0 4px; } .stars button.on { color:#f5b301; }
 </style>
 </head>
 <body>
@@ -172,7 +173,7 @@ function rich(t) { // bold and bullets from the app's notes
 function markLines(t) { return String(t || "").replace(/\*\*(.+?)\*\*/g, "$1"); }
 
 /* ---------- session and API ---------- */
-var S = { session: null, profile: null, students: [], lessons: [], notes: [], tourn: [], coaches: {}, requests: [], joins: [], charges: [], payments: [], lessonPays: [], rates: [], payInfos: [], expenses: [], otherIncome: [], recurring: [], groups: [], attendance: [], coachCode: "", cache: {}, signed: {} };
+var S = { session: null, profile: null, students: [], lessons: [], notes: [], tourn: [], coaches: {}, requests: [], joins: [], charges: [], payments: [], lessonPays: [], rates: [], payInfos: [], expenses: [], otherIncome: [], recurring: [], groups: [], attendance: [], stuRates: [], plans: [], coachCode: "", cache: {}, signed: {} };
 try { S.session = JSON.parse(localStorage.getItem("sidebar.web.session") || "null"); } catch (e) {}
 function saveSession(s) {
   S.session = s;
@@ -217,7 +218,7 @@ function shell(inner) {
   var nm = S.profile ? (S.profile.display_name || "?") : "?";
   return '<header class="top"><div class="in"><a href="#/" class="logo" aria-label="Sidebar home"><i></i></a><a href="#/" class="brand" style="text-decoration:none;color:inherit">Sidebar</a><span class="sp"></span>' +
     (S.session ? '<a class="circ" href="#/cal" aria-label="Schedule">' + ico("calendar", 18) + '</a><span class="circ ball" title="' + esc(nm) + '">' + esc(nm.charAt(0).toUpperCase()) + '</span><button class="pill" id="out">Sign out</button>' : "") +
-    '</div></header><div class="wrap">' + inner + '<nav class="foot"><a href="' + SITE + 'privacy.html">Privacy</a> &middot; <a href="' + SITE + 'terms.html">Terms</a> &middot; <a href="' + SITE + 'support.html">Support</a></nav></div>';
+    '</div></header><div class="wrap">' + inner + '<nav class="foot"><a href="#" data-fb="1">Feedback</a> &middot; ' + (S.session && S.session.user.id === ADMIN_UID ? '<a href="#/feedback">Inbox</a> &middot; ' : "") + '<a href="' + SITE + 'privacy.html">Privacy</a> &middot; <a href="' + SITE + 'terms.html">Terms</a> &middot; <a href="' + SITE + 'support.html">Support</a></nav></div>';
 }
 
 function authView(mode, msg) {
@@ -343,6 +344,7 @@ function render() {
   if (h2[0] === "books" && S.profile.role === "coach") return booksView();
   if (h2[0] === "feed" && S.profile.role === "coach") return feedView(h2[1]);
   if (h2[0] === "recurring" && S.profile.role === "coach") return recurringView();
+  if (h2[0] === "feedback" && S.session.user.id === ADMIN_UID) return feedbackInbox();
   if (h2[0] === "groups" && S.profile.role === "coach") return groupsView();
   if (h2[0] === "g" && h2[1] && S.profile.role === "coach") return groupView(h2[1]);
   if (h2[0] === "signup") return signupView();
@@ -670,7 +672,7 @@ function openLesson(l) {
     if (e.target.id === "el") { mod.remove(); return lessonForm(l); }
     if (e.target.id === "attb") return openAttendance(l, function () { mod.remove(); openLesson(l); });
     var ps = e.target.closest("[data-ps]");
-    if (ps) { ps.disabled = true; return setLessonPay(l, ps.dataset.sid, ps.dataset.ps).then(function () { var b = $("#paybox", mod); if (b) b.outerHTML = payBlock(l); }).catch(function (er) { alert(er.message); }); }
+    if (ps) { ps.disabled = true; return setLessonPay(l, ps.dataset.sid, ps.dataset.ps, ps.dataset.pm).then(function () { var b = $("#paybox", mod); if (b) b.outerHTML = payBlock(l); }).catch(function (er) { alert(er.message); }); }
     if (e.target.id === "rq") {
       $("#rqf", mod).innerHTML = '<div class="seg"><button data-k="cancel" class="on">Can\'t make it</button><button data-k="reschedule">Move it</button></div><div id="when" style="display:none"><input id="rw" type="datetime-local"></div><textarea id="rn" rows="2" placeholder="Note for your coach (optional)"></textarea><div id="rm" class="err small"></div><button class="btn" id="rs">Send request</button>';
       e.target.style.display = "none"; return;
@@ -699,12 +701,12 @@ function yearStart() { return dayStr(new Date(new Date().getFullYear(), 0, 1)); 
 function newId() { return (window.crypto && crypto.randomUUID) ? crypto.randomUUID() : "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, function (c) { var r = Math.random() * 16 | 0; return (c === "x" ? r : (r & 3 | 8)).toString(16); }); }
 function loadMoney() {
   var soft = function (p) { return p.catch(function () { return null; }); };
-  return Promise.all([soft(api("charges?select=*&order=created_at.asc&limit=2000")), soft(api("payments?select=*&order=paid_on.desc&limit=3000")), soft(api("lesson_pay?select=*&limit=5000")), soft(api("coach_pay_info?select=*&limit=20")), soft(api("rate_cards?select=*&order=created_at.asc&limit=200"))]).then(function (r) {
-    if (r[0]) S.charges = r[0]; if (r[1]) S.payments = r[1]; if (r[2]) S.lessonPays = r[2]; if (r[3]) S.payInfos = r[3]; if (r[4]) S.rates = r[4];
+  return Promise.all([soft(api("charges?select=*&order=created_at.asc&limit=2000")), soft(api("payments?select=*&order=paid_on.desc&limit=3000")), soft(api("lesson_pay?select=*&limit=5000")), soft(api("coach_pay_info?select=*&limit=20")), soft(api("pay_plans?select=*&limit=500")), soft(api("rate_cards?select=*&order=created_at.asc&limit=200"))]).then(function (r) {
+    if (r[0]) S.charges = r[0]; if (r[1]) S.payments = r[1]; if (r[2]) S.lessonPays = r[2]; if (r[3]) S.payInfos = r[3]; if (r[4]) S.plans = r[4]; if (r[5]) S.rates = r[5];
     if (!S.profile || S.profile.role !== "coach") return;
-    return Promise.all([soft(api("expenses?select=*&order=spent_on.desc&limit=5000")), soft(api("other_income?select=*&order=received_on.desc&limit=5000")), soft(api("recurring_charges?select=*&order=created_at.asc&limit=500")), soft(api("class_groups?select=*&order=created_at.asc&limit=500")), soft(api("attendance?select=*&limit=50000"))]).then(function (q) {
-      if (q[0]) S.expenses = q[0]; if (q[1]) S.otherIncome = q[1]; if (q[2]) S.recurring = q[2]; if (q[3]) S.groups = q[3]; if (q[4]) S.attendance = q[4];
-      return runRecurring();
+    return Promise.all([soft(api("expenses?select=*&order=spent_on.desc&limit=5000")), soft(api("other_income?select=*&order=received_on.desc&limit=5000")), soft(api("recurring_charges?select=*&order=created_at.asc&limit=500")), soft(api("class_groups?select=*&order=created_at.asc&limit=500")), soft(api("attendance?select=*&limit=50000")), soft(api("student_rates?select=*&limit=1000"))]).then(function (q) {
+      if (q[5]) S.stuRates = q[5]; if (q[0]) S.expenses = q[0]; if (q[1]) S.otherIncome = q[1]; if (q[2]) S.recurring = q[2]; if (q[3]) S.groups = q[3]; if (q[4]) S.attendance = q[4];
+      return runRecurring().then(billFinished);
     });
   });
 }
@@ -748,10 +750,15 @@ function payStatusFor(l, sid) {
   var r = lessonPayOf(l, sid); if (r) return r.status;
   return (S.profile.role === "coach" && isPast(l)) ? "unpaid" : null;
 }
-function setLessonPay(l, sid, status) {
-  var old = lessonPayOf(l, sid), chain = Promise.resolve(), chargeId = null;
-  if (old && old.status === "package" && old.charge_id) { var oc = S.charges.filter(function (c) { return c.id === old.charge_id; })[0]; if (oc) chain = chain.then(function () { return patchCharge(oc, { lessons_used: Math.max(0, (oc.lessons_used || 0) - 1) }); }); }
+function setLessonPay(l, sid, status, method) {
+  var old = lessonPayOf(l, sid), chain = Promise.resolve(), chargeId = null, oc = ownCharge(l, sid), pid = lpayId(l, sid);
+  if (old && old.status === "package" && old.charge_id) { var pc = S.charges.filter(function (c) { return c.id === old.charge_id; })[0]; if (pc && (!oc || pc.id !== oc.id)) chain = chain.then(function () { return patchCharge(pc, { lessons_used: Math.max(0, (pc.lessons_used || 0) - 1) }); }); }
   if (status === "package") { var pk = activePackage(sid); if (pk) { chargeId = pk.id; chain = chain.then(function () { return patchCharge(pk, { lessons_used: (pk.lessons_used || 0) + 1 }); }); } else status = "unpaid"; }
+  if (oc) {
+    if (status === "package" || status === "club" || status === "comp") chain = chain.then(function () { return dropOwnPayment(pid); }).then(function () { return dropOwnCharge(oc); });
+    else if (status === "unpaid") { chargeId = oc.id; chain = chain.then(function () { return dropOwnPayment(pid); }); }
+    else if (status === "paid") { chargeId = oc.id; chain = chain.then(function () { return payOwn(oc, sid, pid, method); }); }
+  }
   var row = { lesson_id: l.id, student_id: sid, coach_id: S.session.user.id, status: status, charge_id: chargeId };
   return chain.then(function () { return api("lesson_pay", { json: [row], prefer: "resolution=merge-duplicates,return=minimal" }); }).then(function () {
     S.lessonPays = S.lessonPays.filter(function (r) { return !(r.lesson_id === l.id && r.student_id === sid); }); S.lessonPays.push(row);
@@ -769,7 +776,7 @@ function payBlock(l) {
   var rows = ids.map(function (sid) {
     var st = payStatusFor(l, sid), nm = studentById(sid).name, pk = coach ? activePackage(sid) : null;
     var badge = st ? '<span class="pbadge" style="background:' + PSTAT[st][1] + '22;color:' + PSTAT[st][1] + '">' + PSTAT[st][0] + '</span>' : '<span class="small muted">Not marked yet</span>';
-    var chips = coach ? '<div class="pchips">' + Object.keys(PSTAT).map(function (k) { return '<button data-ps="' + k + '" data-sid="' + sid + '">' + PSTAT[k][0] + '</button>'; }).join("") + '</div>' : "";
+    var own = coach && ownCharge(l, sid), chips = coach ? '<div class="pchips">' + Object.keys(PSTAT).map(function (k) { return k === "paid" && own ? ["zelle", "venmo", "cash", "check"].map(function (m) { return '<button data-ps="paid" data-pm="' + m + '" data-sid="' + sid + '">Paid by ' + METHODS[m] + '</button>'; }).join("") : '<button data-ps="' + k + '" data-sid="' + sid + '">' + PSTAT[k][0] + '</button>'; }).join("") + '</div>' : "";
     return '<div style="margin:6px 0">' + (ids.length > 1 ? '<b>' + esc(nm) + '</b> ' : "") + badge + (pk ? ' <span class="small muted">' + lessonsLeft(pk) + ' left in package</span>' : "") + chips + '</div>';
   }).join("");
   return '<div id="paybox"><h3 style="margin-top:14px">Payment</h3>' + rows + '</div>';
@@ -781,10 +788,11 @@ function moneyTab(id, box) {
     var bal = balanceOf(id), pm = paidMap(id), cs = chargesOf(id).slice().sort(function (a, b) { return a.created_at < b.created_at ? 1 : -1; }), ps = paymentsOf(id);
     var h = '<div class="card"><div class="small muted" style="font-weight:700">' + (bal > 0 ? "Owed" : bal < 0 ? "Credit" : "All paid up") + '</div><div style="font-size:40px;font-weight:800;color:' + (bal > 0 ? "#d9822b" : "var(--court)") + '">' + (bal === 0 ? "$0" : $d(Math.abs(bal))) + '</div><div class="small muted">Charged ' + $d(sum(cs, function (c) { return c.amount_cents; })) + ' &bull; Paid ' + $d(sum(ps, function (p) { return p.amount_cents; })) + '</div></div>';
     if (coach) {
-      h += '<button class="btn" id="ac">+ Log money or add a charge</button>' + (bal > 0 ? '<button class="btn ghost" id="gp" style="margin-top:8px">Got paid on what they owe</button>' : "");
+      var rt = rateOf(id), pl = planFor(id);
+      h += '<button class="btn" id="ac">+ Log money or add a charge</button><div class="card" data-rate="1" style="cursor:pointer;margin:8px 0"><div class="row" style="justify-content:space-between"><b>Lesson rate</b><span class="muted">' + (rt ? $d(rt.lesson_cents) + " per lesson" : "Not set") + '</span></div></div><div class="card" data-plan="1" style="cursor:pointer;margin:8px 0"><div class="row" style="justify-content:space-between"><b>Recurring payment</b><span class="muted">' + (pl ? esc(planStatusText(pl)) : "Not set") + '</span></div></div>' + (bal > 0 ? '<button class="btn ghost" id="gp" style="margin-top:8px">Got paid on what they owe</button>' : "");
       if (bal > 0) h += '<button class="btn ghost" id="rm" style="margin-top:8px">Send payment reminder</button><div id="rmm" class="small muted"></div>';
-    } else if (bal > 0) {
-      var i = myPayInfo();
+    } else if (bal > 0 || planFor(id)) {
+      var i = myPayInfo(); h += planCardHtml(s); if (bal > 0)
       h += '<div class="card"><h3>How to pay</h3>' + (i && (i.zelle || i.venmo) ? (i.zelle ? '<div class="row" style="justify-content:space-between;margin:6px 0"><span><b>Zelle</b> ' + esc(i.zelle) + '</span><button class="pill cp" data-v="' + esc(i.zelle) + '">Copy</button></div>' : "") + (i.venmo ? '<div class="row" style="justify-content:space-between;margin:6px 0"><span><b>Venmo</b> ' + esc(i.venmo) + '</span><button class="pill cp" data-v="' + esc(i.venmo) + '">Copy</button></div><a href="https://venmo.com/' + encodeURIComponent(String(i.venmo).replace(/^@/, "")) + '?txn=pay&amount=' + (bal / 100).toFixed(2) + '&note=' + encodeURIComponent("Tennis with " + s.name) + '" target="_blank" rel="noopener">Open Venmo with ' + $d(bal) + '</a>' : "") + (i.note ? '<div class="small muted" style="margin-top:6px">' + esc(i.note) + '</div>' : "") + '<div class="small muted" style="margin-top:6px">After you pay, your coach marks it paid here.</div>' : '<div class="small muted">Ask your coach how they like to be paid.</div>') + '</div>';
     }
     var pk = cs.filter(isPkg);
@@ -799,6 +807,9 @@ function moneyTab(id, box) {
       var cp = e.target.closest(".cp"); if (cp) { (navigator.clipboard ? navigator.clipboard.writeText(cp.dataset.v) : Promise.reject()).then(function () { cp.textContent = "Copied"; }, function () {}); return; }
       var ec = e.target.closest("[data-ec]"); if (ec) return editCharge(S.charges.filter(function (c) { return c.id === ec.dataset.ec; })[0], function () { moneyTab(id, box); });
       var ep = e.target.closest("[data-ep]"); if (ep) return editPayment(S.payments.filter(function (p) { return p.id === ep.dataset.ep; })[0], function () { moneyTab(id, box); });
+      if (e.target.closest("[data-rate]")) return rateForm(s, function () { moneyTab(id, box); });
+      if (e.target.closest("[data-plan]")) return planForm(s, function () { moneyTab(id, box); });
+      if (e.target.id === "plok") { e.target.disabled = true; return planConfirm(s, function () { moneyTab(id, box); }); }
       if (e.target.id === "ac") return logForm(s.id, function () { moneyTab(id, box); });
       if (e.target.id === "gp") return paymentForm(s, function () { moneyTab(id, box); });
       if (e.target.id === "rm") { e.target.disabled = true; sendReminder(id).then(function () { $("#rmm").textContent = "Reminder sent in chat."; }).catch(function (er) { $("#rmm").textContent = er.message; e.target.disabled = false; }); }
@@ -1016,7 +1027,7 @@ function editCharge(c, done) {
     }
     if (e.target.id === "edl") {
       if (!confirm("Delete this charge? Payments tied to it stay in your history.")) return;
-      delRow("charges", c.id).then(function () { S.charges = S.charges.filter(function (x) { return x.id !== c.id; }); S.payments.forEach(function (p) { if (p.charge_id === c.id) p.charge_id = null; }); mod.remove(); done(); }).catch(function (er) { $("#em", mod).textContent = er.message; });
+      compLinked(c).then(function () { return delRow("charges", c.id); }).then(function () { S.charges = S.charges.filter(function (x) { return x.id !== c.id; }); S.payments.forEach(function (p) { if (p.charge_id === c.id) p.charge_id = null; }); mod.remove(); done(); }).catch(function (er) { $("#em", mod).textContent = er.message; });
     }
   });
 }
@@ -1067,7 +1078,9 @@ function otherForm(o, done) {
 }
 
 /* Books: summary, income, expenses, by month or year, CSV */
-var BK = { page: "summary", d: new Date(), year: false, week: false };
+var BK = { page: "summary", d: new Date(), year: false, week: false, filter: null };
+function bkF(arr, k) { var f = BK.filter; if (!f) return arr; return arr.filter(function (x) { if (f.k === "method") return (METHODS[x.method] || "Other") === f.v; if (f.k === "player") return k === "p" && stuName(x.student_id) === f.v; if (f.k === "source") return k === "o" && (x.source || "Other income") === f.v; return true; }); }
+function bkChip() { return BK.filter ? '<div class="pchips"><button data-bfc="1">Showing ' + esc(BK.filter.v) + ' &times;</button></div>' : ""; }
 function bkRange() {
   var y = BK.d.getFullYear(), m = BK.d.getMonth();
   if (BK.week) {
@@ -1105,7 +1118,7 @@ function booksView() {
 function drawBooks() {
   var box = $("#bk"); if (!box) return;
   var r = bkRange(), d = booksData(r), pct = 25; try { pct = parseInt(localStorage.getItem("sidebar.taxpct") || "25", 10) || 25; } catch (e) {}
-  var list = function (arr) { var mx = Math.max.apply(null, arr.map(function (x) { return x.cents; }).concat([1])); return arr.map(function (x) { return '<div class="brl"><div class="row" style="justify-content:space-between"><span>' + esc(x.name) + '</span><b>' + $d(x.cents) + '</b></div><div class="bar"><i style="width:' + Math.max(3, Math.round(x.cents / mx * 100)) + '%"></i></div></div>'; }).join(""); };
+  var list = function (arr, kind) { var mx = Math.max.apply(null, arr.map(function (x) { return x.cents; }).concat([1])); return arr.map(function (x) { return '<div class="brl" data-bf="' + kind + '" data-bv="' + esc(x.name) + '" style="cursor:pointer"><div class="row" style="justify-content:space-between"><span>' + esc(x.name) + '</span><b>' + $d(x.cents) + '</b></div><div class="bar"><i style="width:' + Math.max(3, Math.round(x.cents / mx * 100)) + '%"></i></div></div>'; }).join(""); };
   var h = '<div class="seg"><button data-pg="summary" class="' + (BK.page === "summary" ? "on" : "") + '">Summary</button><button data-pg="income" class="' + (BK.page === "income" ? "on" : "") + '">Income</button><button data-pg="expenses" class="' + (BK.page === "expenses" ? "on" : "") + '">Expenses</button></div>' +
     '<div class="seg" style="margin-top:8px"><button data-yr="w" class="' + (BK.week ? "on" : "") + '">Week</button><button data-yr="0" class="' + (!BK.week && !BK.year ? "on" : "") + '">Month</button><button data-yr="1" class="' + (!BK.week && BK.year ? "on" : "") + '">Year</button></div>' +
     '<div class="row" style="justify-content:space-between;align-items:center;margin:10px 0"><button class="circ" data-st="-1">' + ico("back", 16) + '</button><b>' + esc(r.title) + '</b><button class="circ" data-st="1">' + ico("chev", 16) + '</button></div>';
@@ -1113,23 +1126,25 @@ function drawBooks() {
     h += '<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px"><div class="card" style="margin:0"><div style="font-weight:800;font-size:20px;color:#1d9a5b">' + $d(d.income) + '</div><div class="small muted">Income</div></div><div class="card" style="margin:0"><div style="font-weight:800;font-size:20px;color:#d9822b">' + $d(d.expense) + '</div><div class="small muted">Expenses</div></div><div class="card" style="margin:0"><div style="font-weight:800;font-size:22px;color:' + (d.profit >= 0 ? "var(--court)" : "#b3261e") + '">' + $d(d.profit) + '</div><div class="small muted">Profit</div></div></div>';
     if (d.profit > 0) h += '<div class="card" style="padding:10px 14px"><div class="row c" style="gap:10px;flex-wrap:wrap"><span>Set aside for taxes</span><input id="tp" type="number" min="0" max="60" step="5" value="' + pct + '" style="width:60px;margin:0;padding:6px 8px;text-align:center"><span>%</span><span class="grow"></span><span class="muted small">Rough amount</span><b id="tpv">' + $d(Math.round(d.profit * pct / 100)) + '</b></div><div class="small muted" style="margin-top:4px">A rough guide so tax time is not a shock. Ask your accountant for the real number.</div></div>';
     h += '<div class="g2">';
-    if (d.byPlayer.length) h += '<div><h2>Income by player</h2><div class="card">' + list(d.byPlayer) + '</div></div>';
-    if (d.byMethod.length) h += '<div><h2>Income by how you got paid</h2><div class="card">' + list(d.byMethod) + '</div></div>';
-    if (d.bySource.length) h += '<div><h2>Income from clubs and other</h2><div class="card">' + list(d.bySource) + '</div></div>';
-    if (d.byCat.length) h += '<div><h2>Expenses by category</h2><div class="card">' + list(d.byCat) + '</div></div>';
+    if (d.byPlayer.length) h += '<div><h2>Income by player</h2><div class="card">' + list(d.byPlayer, "player") + '</div></div>';
+    if (d.byMethod.length) h += '<div><h2>Income by how you got paid</h2><div class="card">' + list(d.byMethod, "method") + '</div></div>';
+    if (d.bySource.length) h += '<div><h2>Income from clubs and other</h2><div class="card">' + list(d.bySource, "source") + '</div></div>';
+    if (d.byCat.length) h += '<div><h2>Expenses by category</h2><div class="card">' + list(d.byCat, "cat") + '</div></div>';
     h += '</div>';
     h += '<button class="btn ghost" id="csv">Export ' + esc(r.title) + ' as a spreadsheet (CSV)</button><div class="small muted">Every payment, club income and expense in this period, ready for your accountant or tax software.</div>';
   } else if (BK.page === "income") {
-    var lines = d.pays.map(function (p) { var ch = S.charges.filter(function (c) { return c.id === p.charge_id; })[0]; return { day: p.paid_on, t: stuName(p.student_id), sub: (ch ? ch.title : "Payment") + ", " + (METHODS[p.method] || "Other"), c: p.amount_cents, k: "p", id: p.id }; }).concat(d.oth.map(function (o) { return { day: o.received_on, t: o.source || "Other income", sub: o.title || (METHODS[o.method] || ""), c: o.amount_cents, k: "o", id: o.id }; })).sort(function (a, b) { return a.day < b.day ? 1 : -1; });
-    h += '<button class="btn" id="li">+ Log money in</button><h2>' + lines.length + ' ' + (lines.length === 1 ? "entry" : "entries") + ', ' + $d(d.income) + '</h2>' + (lines.length ? '<div class="hl">' + lines.map(function (l) { return '<div class="hist" data-k="' + l.k + '" data-id="' + l.id + '" style="cursor:pointer"><div><b>' + esc(l.t) + '</b><div class="small muted">' + esc(prettyDay(l.day)) + ' &bull; ' + esc(l.sub) + '</div></div><b style="color:#1d9a5b">+' + $d(l.c) + '</b></div>'; }).join("") + '</div>' : '<div class="card empty">Nothing logged in this period.</div>');
+    var lines = bkF(d.pays, "p").map(function (p) { var ch = S.charges.filter(function (c) { return c.id === p.charge_id; })[0]; return { day: p.paid_on, t: stuName(p.student_id), sub: (ch ? ch.title : "Payment") + ", " + (METHODS[p.method] || "Other"), c: p.amount_cents, k: "p", id: p.id }; }).concat(bkF(d.oth, "o").map(function (o) { return { day: o.received_on, t: o.source || "Other income", sub: o.title || (METHODS[o.method] || ""), c: o.amount_cents, k: "o", id: o.id }; })).sort(function (a, b) { return a.day < b.day ? 1 : -1; });
+    h += '<button class="btn" id="li">+ Log money in</button>' + bkChip() + '<h2>' + lines.length + ' ' + (lines.length === 1 ? "entry" : "entries") + ', ' + $d(sum(lines, function (x) { return x.c; })) + '</h2>' + (lines.length ? '<div class="hl">' + lines.map(function (l) { return '<div class="hist" data-k="' + l.k + '" data-id="' + l.id + '" style="cursor:pointer"><div><b>' + esc(l.t) + '</b><div class="small muted">' + esc(prettyDay(l.day)) + ' &bull; ' + esc(l.sub) + '</div></div><b style="color:#1d9a5b">+' + $d(l.c) + '</b></div>'; }).join("") + '</div>' : '<div class="card empty">Nothing logged in this period.</div>');
   } else {
-    var ex = d.exp.slice().sort(function (a, b) { return a.spent_on < b.spent_on ? 1 : -1; });
-    h += '<button class="btn" id="ae">+ Add expense</button><h2>' + ex.length + ' ' + (ex.length === 1 ? "expense" : "expenses") + ', ' + $d(d.expense) + '</h2>' + (ex.length ? '<div class="hl">' + ex.map(function (e) { return '<div class="hist" data-xe="' + e.id + '" style="cursor:pointer"><div><b>' + esc(e.vendor || e.category) + '</b><div class="small muted">' + esc(prettyDay(e.spent_on)) + ' &bull; ' + esc(e.category) + '</div></div><b style="color:#d9822b">-' + $d(e.amount_cents) + '</b></div>'; }).join("") + '</div>' : '<div class="card empty">No expenses in this period.</div>');
+    var ex = d.exp.filter(function (e) { return !BK.filter || BK.filter.k !== "cat" || e.category === BK.filter.v; }).sort(function (a, b) { return a.spent_on < b.spent_on ? 1 : -1; });
+    h += '<button class="btn" id="ae">+ Add expense</button>' + (BK.filter && BK.filter.k === "cat" ? bkChip() : "") + '<h2>' + ex.length + ' ' + (ex.length === 1 ? "expense" : "expenses") + ', ' + $d(sum(ex, function (x) { return x.amount_cents; })) + '</h2>' + (ex.length ? '<div class="hl">' + ex.map(function (e) { return '<div class="hist" data-xe="' + e.id + '" style="cursor:pointer"><div><b>' + esc(e.vendor || e.category) + '</b><div class="small muted">' + esc(prettyDay(e.spent_on)) + ' &bull; ' + esc(e.category) + '</div></div><b style="color:#d9822b">-' + $d(e.amount_cents) + '</b></div>'; }).join("") + '</div>' : '<div class="card empty">No expenses in this period.</div>');
   }
   box.innerHTML = h;
   var tp = $("#tp"); if (tp) tp.oninput = function () { var v = parseInt(tp.value, 10) || 0; try { localStorage.setItem("sidebar.taxpct", String(v)); } catch (e) {} $("#tpv").textContent = $d(Math.round(d.profit * v / 100)); };
   box.onclick = function (e) {
-    var pg = e.target.closest("[data-pg]"); if (pg) { BK.page = pg.dataset.pg; return drawBooks(); }
+    var bf = e.target.closest("[data-bf]"); if (bf) { BK.filter = { k: bf.dataset.bf, v: bf.dataset.bv }; BK.page = bf.dataset.bf === "cat" ? "expenses" : "income"; return drawBooks(); }
+    if (e.target.closest("[data-bfc]")) { BK.filter = null; return drawBooks(); }
+    var pg = e.target.closest("[data-pg]"); if (pg) { BK.page = pg.dataset.pg; if (BK.page === "summary") BK.filter = null; return drawBooks(); }
     var yr = e.target.closest("[data-yr]"); if (yr) { BK.week = yr.dataset.yr === "w"; BK.year = yr.dataset.yr === "1"; return drawBooks(); }
     var st = e.target.closest("[data-st]"); if (st) { var n = parseInt(st.dataset.st, 10); BK.d = BK.week ? new Date(BK.d.getFullYear(), BK.d.getMonth(), BK.d.getDate() + 7 * n) : BK.year ? new Date(BK.d.getFullYear() + n, 0, 1) : new Date(BK.d.getFullYear(), BK.d.getMonth() + n, 1); return drawBooks(); }
     if (e.target.id === "csv") return downloadBooksCSV(r, d);
@@ -1795,6 +1810,166 @@ function lessonForm(l, presetSid) {
   });
 }
 document.addEventListener("click", function (e) { var b = e.target.closest && e.target.closest("[data-addlesson]"); if (b && S.profile && S.profile.role === "coach") lessonForm(null, b.dataset.addlesson || null); });
+
+/* ---------- lesson rates, auto billing and recurring payments ---------- */
+function xorId(a, b, salt) {
+  var x = a.replace(/-/g, "").toLowerCase(), y = b.replace(/-/g, "").toLowerCase(), out = [];
+  for (var i = 0; i < 16; i++) { var v = parseInt(x.substr(i * 2, 2), 16) ^ parseInt(y.substr(i * 2, 2), 16); if (i === 0) v ^= salt; out.push(("0" + v.toString(16)).slice(-2)); }
+  var h = out.join(""); return h.slice(0, 8) + "-" + h.slice(8, 12) + "-" + h.slice(12, 16) + "-" + h.slice(16, 20) + "-" + h.slice(20);
+}
+function lchargeId(l, sid) { return xorId(l.id, sid, 0x5A); }
+function lpayId(l, sid) { return xorId(l.id, sid, 0xA5); }
+function rateOf(sid) { return S.stuRates.filter(function (r) { return r.student_id === sid; })[0]; }
+function ownCharge(l, sid) { var id = lchargeId(l, sid); return S.charges.filter(function (c) { return c.id === id; })[0]; }
+function methodDefault() { try { return localStorage.getItem("sidebar.payMethod") || "zelle"; } catch (e) { return "zelle"; } }
+function setMethodDefault(m) { try { localStorage.setItem("sidebar.payMethod", m); } catch (e) {} }
+/* Every finished private or semi private lesson for a player with a rate becomes a charge. Safe to run again and again. */
+function billFinished() {
+  if (!S.profile || S.profile.role !== "coach" || !S.stuRates.length) return Promise.resolve();
+  var me = S.session.user.id, ch = [], rows = [];
+  S.lessons.forEach(function (l) {
+    if (!isPast(l) || l.group_id) return;
+    sids(l).forEach(function (sid) {
+      var r = rateOf(sid); if (!studentById(sid) || !r || r.lesson_cents <= 0) return;
+      if (lEnd(l) < new Date(r.bill_from + "T00:00:00").getTime()) return;
+      var cid = lchargeId(l, sid), row = lessonPayOf(l, sid);
+      if (row && row.status !== "unpaid") return;
+      if (S.charges.some(function (c) { return c.id === cid; }) || ch.some(function (c) { return c.id === cid; })) return;
+      ch.push({ id: cid, coach_id: me, student_id: sid, kind: "drop_in", title: "Lesson, " + new Date(l.start_at).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" }).replace(",", ""), amount_cents: r.lesson_cents, lessons_used: 0, created_at: new Date(lEnd(l)).toISOString() });
+      rows.push({ lesson_id: l.id, student_id: sid, coach_id: me, status: "unpaid", charge_id: cid });
+    });
+  });
+  if (!ch.length) return Promise.resolve();
+  return api("charges", { json: ch, prefer: "resolution=ignore-duplicates,return=minimal" }).then(function () { return api("lesson_pay", { json: rows, prefer: "resolution=merge-duplicates,return=minimal" }); }).then(function () {
+    ch.forEach(function (c) { S.charges.push(c); });
+    rows.forEach(function (r) { S.lessonPays = S.lessonPays.filter(function (x) { return !(x.lesson_id === r.lesson_id && x.student_id === r.student_id); }); S.lessonPays.push(r); });
+  }).catch(function () {});
+}
+function dropOwnPayment(pid) {
+  if (!S.payments.some(function (p) { return p.id === pid; })) return Promise.resolve();
+  return delRow("payments", pid).then(function () { S.payments = S.payments.filter(function (p) { return p.id !== pid; }); });
+}
+function dropOwnCharge(c) {
+  if (!c) return Promise.resolve();
+  return delRow("charges", c.id).then(function () { S.charges = S.charges.filter(function (x) { return x.id !== c.id; }); S.payments.forEach(function (p) { if (p.charge_id === c.id) p.charge_id = null; }); });
+}
+function payOwn(oc, sid, pid, method) {
+  var m = method || methodDefault(), owed = oc.amount_cents - (paidMap(sid)[oc.id] || 0);
+  if (owed <= 0) return Promise.resolve();
+  var row = { id: pid, coach_id: S.session.user.id, student_id: sid, charge_id: oc.id, amount_cents: owed, method: m, paid_on: dayStr(), note: "Lesson payment", created_at: new Date().toISOString() };
+  return api("payments", { json: [row], prefer: "resolution=merge-duplicates,return=minimal" }).then(function () { S.payments = S.payments.filter(function (p) { return p.id !== pid; }); S.payments.unshift(row); setMethodDefault(m); });
+}
+/* A charge you delete by hand must not get billed again, so its lessons become Free. */
+function compLinked(c) {
+  var rows = S.lessonPays.filter(function (r) { return r.charge_id === c.id && r.status === "unpaid"; });
+  if (!rows.length) return Promise.resolve();
+  rows.forEach(function (r) { r.status = "comp"; r.charge_id = null; });
+  return api("lesson_pay", { json: rows, prefer: "resolution=merge-duplicates,return=minimal" }).catch(function () {});
+}
+function rateForm(s, done) {
+  var r = rateOf(s.id);
+  var mod = openModal('<h3>Lesson rate for ' + esc(s.name) + '</h3><div class="small muted">What this player pays per lesson. Only you see it. Every finished private or semi private lesson from the date below is charged automatically. Group sessions are not billed here.</div>' +
+    '<div class="cap" style="margin-top:8px">Per lesson</div><input id="ra" inputmode="decimal" placeholder="Like 75" value="' + (r ? r.lesson_cents / 100 : "") + '"><div class="cap">Bill lessons from</div><input id="rf" type="date" value="' + (r ? r.bill_from : dayStr()) + '">' +
+    '<div class="small muted">Leave the amount blank to turn billing off for this player.</div><div class="err small" id="re"></div><button class="btn" id="rs" style="margin-top:8px">Save rate</button>');
+  mod.addEventListener("click", function (e) {
+    if (e.target.id !== "rs") return;
+    var cents = toCents($("#ra", mod).value); e.target.disabled = true;
+    var p = cents <= 0 ? api("student_rates?student_id=eq." + s.id, { method: "DELETE", prefer: "return=minimal" }).then(function () { S.stuRates = S.stuRates.filter(function (x) { return x.student_id !== s.id; }); })
+      : (function () { var row = { student_id: s.id, coach_id: S.session.user.id, lesson_cents: cents, bill_from: $("#rf", mod).value || dayStr() }; return api("student_rates", { json: [row], prefer: "resolution=merge-duplicates,return=minimal" }).then(function () { S.stuRates = S.stuRates.filter(function (x) { return x.student_id !== s.id; }); S.stuRates.push(row); return billFinished(); }); })();
+    p.then(function () { mod.remove(); done(); }).catch(function (er) { $("#re", mod).textContent = er.message; e.target.disabled = false; });
+  });
+}
+function planFor(sid) { return S.plans.filter(function (p) { return p.student_id === sid; })[0]; }
+function planText(p) {
+  var amt = $d(p.amount_cents);
+  if (p.frequency === "weekly") return amt + " every " + ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"][Math.max(0, Math.min(6, p.due_day - 1))];
+  var n = p.due_day, t = n % 100; return amt + " every month on the " + n + ((t >= 11 && t <= 13) ? "th" : ["th", "st", "nd", "rd"][n % 10] || "th");
+}
+function planStatusText(p) { return p ? ({ asked: "Asked, waiting on them", active: "They set it up" })[p.status] || "Not set up yet" : "Not set"; }
+function planMessage(s, p) {
+  var i = myPayInfo(), lines = ["Hey " + (s.parent_name || "there") + ", here's how to set up " + s.name + "'s lessons so you don't have to think about it.", "Amount: " + planText(p) + "."];
+  if (p.method === "zelle") lines.push("In your bank app, open Zelle, send to " + (i && i.zelle ? i.zelle : "my Zelle info") + ", enter the amount, and choose Repeat. Pick " + (p.frequency === "weekly" ? "weekly" : "monthly") + " and the day, then confirm.");
+  else lines.push("In Venmo, pay " + (i && i.venmo ? i.venmo : "my Venmo") + " the amount. Venmo does not repeat on its own, so a quick tap each " + (p.frequency === "weekly" ? "week" : "month") + " works, and I will send a nudge if I do not see it.");
+  lines.push("Once it is set up, tap I set it up on " + s.name + "'s Money tab in Sidebar so I know. Thanks!");
+  return lines.join("\n\n");
+}
+function planForm(s, done) {
+  var p0 = planFor(s.id), weekdays = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"], sent = false;
+  var mod = openModal('<h3>Recurring payment for ' + esc(s.name) + '</h3><div class="small muted">Banks only let the person paying set up a repeat, so you send the steps and they do it in their bank app in a minute.</div>' +
+    '<div class="cap" style="margin-top:8px">Amount each time</div><input id="pa" inputmode="decimal" placeholder="Like 600" value="' + (p0 ? p0.amount_cents / 100 : "") + '">' +
+    '<div class="row" style="gap:8px"><div class="grow"><div class="cap">How often</div><select id="pf"><option value="monthly"' + (p0 && p0.frequency === "weekly" ? "" : " selected") + '>Monthly</option><option value="weekly"' + (p0 && p0.frequency === "weekly" ? " selected" : "") + '>Weekly</option></select></div><div class="grow"><div class="cap" id="pdl">Day</div><select id="pd"></select></div></div>' +
+    '<div class="cap">Paid by</div><select id="pm"><option value="zelle"' + (p0 && p0.method === "venmo" ? "" : " selected") + '>Zelle</option><option value="venmo"' + (p0 && p0.method === "venmo" ? " selected" : "") + '>Venmo</option></select>' +
+    '<div class="cap">Status</div><select id="ps"><option value="none">Not set up yet</option><option value="asked">Asked, waiting on them</option><option value="active">They set it up</option></select>' +
+    '<div class="err small" id="pe"></div><button class="btn" id="psave" style="margin-top:8px">Save plan</button>' +
+    '<button class="btn ghost" id="psend" style="margin-top:8px">Send setup message in chat</button><button class="btn ghost" id="prec" style="margin-top:8px">Mark this payment received</button>' +
+    (p0 ? '<button class="btn ghost" id="pdel" style="margin-top:8px;color:var(--danger)">Remove this plan</button>' : ""));
+  function fillDays() {
+    var wk = $("#pf", mod).value === "weekly", sel = $("#pd", mod), cur = p0 && ((p0.frequency === "weekly") === wk) ? p0.due_day : (wk ? 2 : 1);
+    sel.innerHTML = wk ? weekdays.map(function (n, i) { return '<option value="' + (i + 1) + '"' + (i + 1 === cur ? " selected" : "") + '>' + n + '</option>'; }).join("") : Array.apply(null, Array(28)).map(function (_, i) { return '<option value="' + (i + 1) + '"' + (i + 1 === cur ? " selected" : "") + '>' + (i + 1) + '</option>'; }).join("");
+  }
+  fillDays(); $("#ps", mod).value = p0 ? p0.status : "none"; $("#pf", mod).onchange = fillDays;
+  function build() {
+    var cents = toCents($("#pa", mod).value); if (cents <= 0) { $("#pe", mod).textContent = "Add an amount."; return null; }
+    return { student_id: s.id, coach_id: S.session.user.id, amount_cents: cents, frequency: $("#pf", mod).value, due_day: +$("#pd", mod).value, method: $("#pm", mod).value, status: $("#ps", mod).value, updated_at: new Date().toISOString() };
+  }
+  function save(p) { return api("pay_plans", { json: [p], prefer: "resolution=merge-duplicates,return=minimal" }).then(function () { S.plans = S.plans.filter(function (x) { return x.student_id !== s.id; }); S.plans.push(p); }); }
+  var fail = function (er) { $("#pe", mod).textContent = er.message; $$("button", mod).forEach(function (b) { b.disabled = false; }); };
+  mod.addEventListener("click", function (e) {
+    var id = e.target.id; if (!id || id === "x") return;
+    if (id === "pdel") return api("pay_plans?student_id=eq." + s.id, { method: "DELETE", prefer: "return=minimal" }).then(function () { S.plans = S.plans.filter(function (x) { return x.student_id !== s.id; }); mod.remove(); done(); }).catch(fail);
+    var p = build(); if (!p) return;
+    e.target.disabled = true; $("#pe", mod).textContent = "";
+    if (id === "psave") return save(p).then(function () { mod.remove(); done(); }).catch(fail);
+    if (id === "psend") {
+      if (p.status === "none") p.status = "asked";
+      return save(p).then(function () { return api("messages", { json: { student_id: s.id, author_id: S.session.user.id, author_name: S.profile.display_name || "Coach", author_role: "coach", body: planMessage(s, p) }, prefer: "return=minimal" }); }).then(function () { mod.remove(); done(); }).catch(fail);
+    }
+    if (id === "prec") {
+      var row = { id: newId(), coach_id: S.session.user.id, student_id: s.id, charge_id: null, amount_cents: p.amount_cents, method: p.method, paid_on: dayStr(), note: "Recurring", created_at: new Date().toISOString() };
+      return save(p).then(function () { return api("payments", { json: [row], prefer: "return=minimal" }); }).then(function () { S.payments.unshift(row); return settleLessons(s.id); }).then(function () { mod.remove(); done(); }).catch(fail);
+    }
+  });
+}
+function planCardHtml(s) {
+  var p = planFor(s.id); if (!p || p.amount_cents <= 0) return "";
+  var i = myPayInfo(), how = p.method === "venmo" ? (i && i.venmo) : (i && i.zelle), url = "";
+  if (p.method === "venmo" && i && i.venmo) url = "https://venmo.com/" + encodeURIComponent(String(i.venmo).replace(/^@/, "")) + "?txn=pay&amount=" + (p.amount_cents / 100).toFixed(2) + "&note=" + encodeURIComponent("Tennis with " + s.name);
+  return '<div class="card"><h3>Recurring payment</h3><div style="font-size:20px;font-weight:800;color:var(--court)">' + esc(planText(p)) + '</div>' +
+    (how ? '<div class="row" style="justify-content:space-between;margin:8px 0"><span><b>' + (p.method === "venmo" ? "Venmo" : "Zelle") + '</b> ' + esc(how) + '</span><button class="pill cp" data-v="' + esc(how) + '">Copy</button></div>' : "") +
+    (url ? '<a href="' + esc(url) + '" target="_blank" rel="noopener">Open Venmo</a>' : "") +
+    (p.method === "zelle" ? '<div class="small muted">Open your bank app, go to Zelle, send the amount and choose Repeat. Pick the day above.</div>' : "") +
+    (p.status === "active" ? '<div class="small" style="margin-top:8px;font-weight:800;color:#1d9a5b">Set up, thank you</div>' : '<button class="btn ghost" id="plok" style="margin-top:8px">I set it up</button>') + '</div>';
+}
+function planConfirm(s, done) {
+  return api("rpc/confirm_pay_plan", { json: { sid: s.id }, prefer: "return=minimal" }).then(function () { var p = planFor(s.id); if (p) p.status = "active"; done(); });
+}
+
+/* ---------- feedback ---------- */
+var ADMIN_UID = "8e11916f-92fa-4e55-b5f7-93f43ab31c32";
+function starsText(n) { return n ? "★".repeat(n) + "☆".repeat(5 - n) : "No rating"; }
+function feedbackForm() {
+  var rating = 0;
+  var mod = openModal('<h3 style="margin:0 0 4px">How is Sidebar?</h3><div class="small muted">Tell me what you like and what is annoying. A real person reads every one.</div><div class="stars" id="st">' + [1, 2, 3, 4, 5].map(function (n) { return '<button type="button" data-star="' + n + '">&#9733;</button>'; }).join("") + '</div><textarea id="fm" rows="4" placeholder="What is working? What is not?"></textarea><label class="pk"><input type="checkbox" id="ff" checked> <span>OK to follow up with me</span></label><div class="err small" id="fe"></div><button class="btn" id="fs" style="margin-top:8px">Send feedback</button>');
+  mod.addEventListener("click", function (e) {
+    var st = e.target.closest("[data-star]");
+    if (st) { rating = +st.dataset.star; $$("#st button", mod).forEach(function (b) { b.classList.toggle("on", +b.dataset.star <= rating); }); return; }
+    if (e.target.id !== "fs") return;
+    var msg = $("#fm", mod).value.trim(); if (!rating && !msg) { $("#fe", mod).textContent = "Add a rating or a few words."; return; }
+    e.target.disabled = true;
+    api("feedback", { json: { user_id: S.session.user.id, name: (S.profile && S.profile.display_name) || "", role: (S.profile && S.profile.role) || "", rating: rating || null, message: msg, can_follow_up: $("#ff", mod).checked, platform: "web" }, prefer: "return=minimal" }).then(function () {
+      $(".box", mod).innerHTML = '<h3>Thank you</h3><div class="muted">That really helps. I read every one.</div><button class="btn ghost" id="x" style="margin-top:12px">Close</button>'; $("#x", mod).onclick = function () { mod.remove(); };
+    }).catch(function (er) { $("#fe", mod).textContent = er.message; e.target.disabled = false; });
+  });
+}
+document.addEventListener("click", function (e) { var b = e.target.closest && e.target.closest("[data-fb]"); if (b && S.session) { e.preventDefault(); feedbackForm(); } });
+function feedbackInbox() {
+  app.innerHTML = shell('<div class="hhead"><a class="small" href="#/">&larr; Home</a><h1>Feedback</h1></div><div id="fbx"><p class="empty">Loading...</p></div>');
+  api("feedback?select=*&order=created_at.desc&limit=500").then(function (rows) {
+    var rated = rows.filter(function (r) { return r.rating; }), avg = rated.length ? (rated.reduce(function (t, r) { return t + r.rating; }, 0) / rated.length).toFixed(1) : "none yet";
+    $("#fbx").innerHTML = '<div class="card"><div class="small muted" style="font-weight:700">Average rating</div><div style="font-size:34px;font-weight:800;color:var(--court)">' + avg + '</div><div class="small muted">' + rows.length + (rows.length === 1 ? " response" : " responses") + '</div></div>' +
+      (rows.length ? rows.map(function (r) { return '<div class="card"><div class="row" style="justify-content:space-between"><b>' + esc(r.name || "Someone") + ' <span class="small muted">' + esc(r.role) + ', ' + esc(r.platform) + '</span></b><span style="color:#f5b301">' + starsText(r.rating) + '</span></div><div style="margin:6px 0;white-space:pre-wrap">' + esc(r.message || "(no message)") + '</div><div class="small muted">' + esc(fmtDate(r.created_at, { month: "short", day: "numeric", year: "numeric" })) + (r.can_follow_up ? " &bull; OK to follow up" : " &bull; Do not follow up") + '</div></div>'; }).join("") : '<div class="card empty">Nothing yet.</div>');
+  }).catch(function (er) { $("#fbx").innerHTML = '<div class="card empty">' + esc(er.message) + '</div>'; });
+}
 
 /* ---------- start ---------- */
 if (S.session) boot(); else render();
