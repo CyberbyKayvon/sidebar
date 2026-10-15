@@ -306,13 +306,19 @@ function boot() {
     S.cache = {};
     return Promise.all([soft(api("lessons?select=*,lesson_students(student_id)&order=start_at.asc&limit=3000")), soft(api("notes?select=*&order=note_date.desc&limit=500")), soft(api("tournaments?select=*&order=event_date.asc&limit=500")), soft(api("profiles?role=eq.coach&select=id,display_name,academy")), soft(api("item_checks?select=*&limit=5000")), soft(api("lesson_requests?select=*&order=created_at.desc&limit=200")), soft(api("join_requests?select=*&order=created_at.desc&limit=100"))]);
   }).then(function (x) {
-    S.lessons = x[0]; S.notes = x[1]; S.tourn = x[2]; S.coaches = {};
+    S.lessons = x[0];
+    if (S.profile.role === "coach") {
+      var mine = {}; S.students.forEach(function (st) { mine[st.id] = 1; });
+      // Same rule as the app: a lesson counts if it belongs to a group or to one of your students.
+      S.lessons = S.lessons.filter(function (l) { return l.group_id || (l.lesson_students || []).some(function (r) { return mine[r.student_id]; }); });
+    }
+    S.notes = x[1]; S.tourn = x[2]; S.coaches = {};
     x[3].forEach(function (p) { S.coaches[p.id] = p; });
     if (S.profile.role === "coach") S.coaches[S.profile.id] = S.profile;
     var ck = {}; x[4].forEach(function (c) { ck[c.lesson_id + "|" + String(c.item_id).toLowerCase()] = c.done; });
     S.lessons.forEach(function (l) { (l.items || []).forEach(function (i) { var k = l.id + "|" + String(i.id).toLowerCase(); if (k in ck) i.done = ck[k]; }); });
     S.requests = x[5]; S.joins = x[6];
-    return loadMoney().then(render);
+    return loadMoney().then(function () { if (S.profile.role === "coach") inheritPlaces(); }).then(render);
   }).catch(function (e) { saveSession(null); authView("signin", e.message); });
 }
 function studentById(id) { return S.students.filter(function (s) { return s.id === id; })[0]; }
@@ -460,6 +466,16 @@ function greeting() {
   return n ? part + ", " + n : part;
 }
 function hrsText(m) { var h = m / 60; return h === Math.round(h) ? String(h) : h.toFixed(1); }
+function inheritPlaces() {
+  var sp = {}, gp = {};
+  (S.groups || []).forEach(function (g) { if (g.location) gp[g.id] = g.location; });
+  S.lessons.slice().sort(function (a, b) { return new Date(a.start_at) - new Date(b.start_at); }).forEach(function (l) {
+    if (l.location) { if (l.series_id) sp[l.series_id] = l.location; return; }
+    if (isPast(l)) return;
+    var p = (l.group_id && gp[l.group_id]) || (l.series_id && sp[l.series_id]) || "";
+    if (p) { l.location = p; if (l.series_id) sp[l.series_id] = p; patchRow("lessons", l.id, { location: p }).catch(function () {}); }
+  });
+}
 function bookSnap() {
   var now = new Date(), start = startOfDay(now); start.setDate(start.getDate() - start.getDay());
   var end = new Date(start); end.setDate(end.getDate() + 7);
