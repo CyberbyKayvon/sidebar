@@ -5,6 +5,9 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Sidebar</title>
 <meta name="theme-color" content="#12543f">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https://img.youtube.com https://ovoveexagfkgynttrvgh.supabase.co; media-src blob: https://ovoveexagfkgynttrvgh.supabase.co; connect-src https://ovoveexagfkgynttrvgh.supabase.co; frame-src https://www.youtube-nocookie.com; base-uri 'none'; form-action 'none'; object-src 'none'">
+<meta name="referrer" content="strict-origin-when-cross-origin">
+
 <style>
   :root { --court:#12543f; --court2:#1f7a5a; --fill:#12543f; --ball:#d9f538; --bg:#f2f2f7; --card:#ffffff; --top:#ffffff; --text:#1c1c1e; --muted:#6b6b70; --line:#e2e2e8; --danger:#d1342f; --tag:rgba(18,84,63,.12); }
   @media (prefers-color-scheme: dark) {
@@ -1211,11 +1214,12 @@ function recurringForm(r) {
 }
 
 /* ---------- student hub ---------- */
-var TABS = [["clips", "Clips", "video"], ["social", "Social", "link"], ["notes", "Notes", "note"], ["lessons", "Lessons", "calendar"], ["tournaments", "Tournaments", "trophy"], ["progress", "Progress", "chart"], ["money", "Money", "dollar"], ["chat", "Chat", "chat"]];
+var TABS = [["notes", "Notes", "note"], ["lessons", "Lessons", "calendar"], ["clips", "Clips", "video"], ["tournaments", "Tournaments", "trophy"], ["progress", "Progress", "chart"], ["money", "Money", "dollar"], ["chat", "Chat", "chat"]];
 function studentView(id, tab) {
   var s = studentById(id);
   if (!s) { location.hash = "#/"; return; }
   if (tab === "schedule") tab = "lessons";
+  if (tab === "social") tab = "clips";
   var coach = S.profile.role === "coach";
   var played = lessonsOf(id).filter(isPast).length;
   var bits = ["Age " + s.age, s.level]; if (s.utr_rating) bits.push("UTR " + s.utr_rating); if (played) bits.push(played + " lessons");
@@ -1236,8 +1240,7 @@ function studentView(id, tab) {
   var fail = function (e) { box.innerHTML = '<p class="err">' + esc(e.message) + '</p>'; };
   if (tab === "lessons") lessonsTab(id, box);
   else if (tab === "notes") notesTab(id, box).catch(fail);
-  else if (tab === "clips") mediaTab(id, box, "clips").catch(fail);
-  else if (tab === "social") mediaTab(id, box, "social").catch(fail);
+  else if (tab === "clips") mediaTab(id, box).catch(fail);
   else if (tab === "progress") progressTab(id, box).catch(fail);
   else if (tab === "report") reportTab(id, box).catch(fail);
   else if (tab === "money") moneyTab(id, box).catch(fail);
@@ -1349,18 +1352,22 @@ function openMedia(m) {
   if (m.kind === "youtube" && m.youtube_id) $("#pl", mod).innerHTML = '<iframe src="https://www.youtube-nocookie.com/embed/' + encodeURIComponent(m.youtube_id) + '" allow="encrypted-media; picture-in-picture" allowfullscreen></iframe>';
   else signedUrl(m.video_path).then(function (u) { $("#pl", mod).innerHTML = u ? '<video controls playsinline autoplay src="' + esc(u) + '"></video>' : '<p class="err">This video is not available.</p>'; });
 }
-function mediaTab(id, box, which) {
+var CPAGES = [["clip", "Clips"], ["instagram", "IG"], ["youtube", "YouTube"]];
+function mediaTab(id, box) {
+  var which = "clip";
   return api("media?student_id=eq." + id + "&order=created_at.desc&select=*").then(function (ms) {
-    var all = ms.filter(function (m) { return which === "clips" ? m.kind === "clip" : m.kind !== "clip"; });
-    if (!all.length) { box.innerHTML = '<div class="card empty">' + (which === "clips" ? "No clips yet. Your coach hasn't shared anything here yet." : "No links yet. Your coach hasn't shared anything here yet.") + '</div>'; return; }
+    var everything = ms, all = [];
     var skill = "All", source = "All";
-    var extras = []; all.forEach(function (m) { var c = canon(m.skill); if (CORE.indexOf(c) < 0 && extras.indexOf(c) < 0) extras.push(c); });
-    var skills = ["All"].concat(CORE, extras);
+    function pick() { all = everything.filter(function (m) { return m.kind === which; }); }
+    pick();
     function draw() {
+      var pg = '<div class="seg">' + CPAGES.map(function (p) { return '<button data-pg="' + p[0] + '" class="' + (which === p[0] ? "on" : "") + '">' + p[1] + '</button>'; }).join("") + '</div>';
+      if (!all.length) { box.innerHTML = pg + '<div class="card empty">' + (which === "clip" ? "No clips yet. " : "No links here yet. ") + 'Your coach hasn\'t shared anything here yet.</div>'; return; }
+      var extras = []; all.forEach(function (m) { var c = canon(m.skill); if (CORE.indexOf(c) < 0 && extras.indexOf(c) < 0) extras.push(c); });
+      var skills = ["All"].concat(CORE, extras);
       var list = all.filter(function (m) { return (source === "All" || (source === "YouTube" ? m.kind === "youtube" : m.kind === "instagram")) && (skill === "All" || canon(m.skill) === skill); });
       var src = all.filter(function (m) { return source === "All" || (source === "YouTube" ? m.kind === "youtube" : m.kind === "instagram"); });
-      var html = "";
-      if (which === "social") html += '<div class="seg">' + ["All", "YouTube", "Instagram"].map(function (s) { return '<button data-src="' + s + '" class="' + (source === s ? "on" : "") + '">' + s + '</button>'; }).join("") + '</div>';
+      var html = pg;
       html += '<div class="chips">' + skills.map(function (s) { var n = s === "All" ? src.length : src.filter(function (m) { return canon(m.skill) === s; }).length; return '<button class="chp' + (skill === s ? " on" : "") + '" data-sk="' + esc(s) + '">' + esc(s) + '<i>' + n + '</i></button>'; }).join("") + '</div>';
       html += '<div class="small muted" style="font-weight:600;margin:4px 0">' + list.length + (skill === "All" ? "" : " " + esc(skill)) + (list.length === 1 ? " video" : " videos") + '</div>';
       html += list.length ? '<div class="media">' + list.map(function (m) { return mediaCard(m, all.indexOf(m)); }).join("") + '</div>' : '<div class="empty">Nothing here yet. Try a different filter.</div>';
@@ -1369,9 +1376,19 @@ function mediaTab(id, box, which) {
     }
     box.onclick = function (e) {
       var t;
-      if ((t = e.target.closest("[data-src]"))) { source = t.dataset.src; draw(); }
+      if ((t = e.target.closest("[data-pg]"))) { which = t.dataset.pg; skill = "All"; pick(); draw(); }
       else if ((t = e.target.closest("[data-sk]"))) { skill = t.dataset.sk; draw(); }
       else if ((t = e.target.closest(".mc"))) openMedia(all[+t.dataset.i]);
+    };
+    var x0 = null;
+    box.ontouchstart = function (e) { x0 = e.touches[0].clientX; };
+    box.ontouchend = function (e) {
+      if (x0 === null) return;
+      var dx = e.changedTouches[0].clientX - x0; x0 = null;
+      if (Math.abs(dx) < 70) return;
+      var i = CPAGES.map(function (p) { return p[0]; }).indexOf(which) + (dx < 0 ? 1 : -1);
+      if (i < 0 || i > 2) return;
+      which = CPAGES[i][0]; skill = "All"; pick(); draw();
     };
     draw();
   });
