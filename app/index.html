@@ -662,11 +662,12 @@ function openLesson(l) {
     (l.recap ? '<h3 style="margin-top:14px">Recap</h3><div class="recap">' + esc(l.recap) + '</div>' : "") +
     (notes.length ? '<h3 style="margin-top:14px">Lesson notes from this day</h3>' + notes.map(function (n) { return '<div style="margin:6px 0"><b>' + esc(n.title) + '</b><div class="small muted">' + esc(plain(n.summary).slice(0, 220)) + '</div></div>'; }).join("") : "") +
     '<div class="cerr err small"></div>' +
-    (!isPast(l) ? '<button class="btn ghost" id="ics" style="margin-top:12px">Add to my calendar</button>' : "") +
+    (S.profile.role === "coach" ? '<button class="btn ghost" id="el" style="margin-top:12px">Edit lesson</button>' : "") + (!isPast(l) ? '<button class="btn ghost" id="ics" style="margin-top:12px">Add to my calendar</button>' : "") +
     (myKid ? reqs.slice(0, 2).map(reqCard).join("") + (reqs.some(function (r) { return r.status === "pending"; }) ? "" : '<button class="btn ghost" id="rq" style="margin-top:10px">Can\'t make it or need to move it</button><div id="rqf"></div>') : ""), null);
   mod.addEventListener("click", function (e) {
     var li = e.target.closest("li[data-i]"); if (li) return toggleCheck(l, li.dataset.i, li, mod);
     if (e.target.id === "ics") return downloadICS(l);
+    if (e.target.id === "el") { mod.remove(); return lessonForm(l); }
     if (e.target.id === "attb") return openAttendance(l, function () { mod.remove(); openLesson(l); });
     var ps = e.target.closest("[data-ps]");
     if (ps) { ps.disabled = true; return setLessonPay(l, ps.dataset.sid, ps.dataset.ps).then(function () { var b = $("#paybox", mod); if (b) b.outerHTML = payBlock(l); }).catch(function (er) { alert(er.message); }); }
@@ -1239,7 +1240,7 @@ function lessonsTab(id, box) {
   function draw() {
     var html = '<div class="seg">' + [["upcoming", "Upcoming"], ["calendar", "Calendar"], ["history", "History"]].map(function (m) { return '<button data-mode="' + m[0] + '" class="' + (mode === m[0] ? "on" : "") + '">' + m[1] + '</button>'; }).join("") + '</div>';
     if (mode === "upcoming") {
-      html += '<h3 style="font-size:17px;margin:14px 0 4px">Coming up</h3>';
+      html += '<div class="row c" style="margin:14px 0 4px"><h3 class="grow" style="font-size:17px;margin:0">Coming up</h3>' + (coach ? '<button class="pill" data-addlesson="' + id + '">+ Lesson</button>' : "") + '</div>';
       var list = upcoming;
       if (coach) {
         var np = upcoming.filter(isPrivate).length, ng = upcoming.length - np;
@@ -1462,7 +1463,7 @@ function syncModal() {
 
 function calView() {
   var all = calLessons(), coach = S.profile.role === "coach";
-  var html = '<div class="row c" style="margin:14px 0 4px"><h1 class="grow" style="margin:0">Schedule</h1><button class="pill" id="syncbtn" style="margin-right:6px">Sync</button><button class="pill" data-a="today">Today</button></div>';
+  var html = '<div class="row c" style="margin:14px 0 4px"><h1 class="grow" style="margin:0">Schedule</h1>' + (coach ? '<button class="pill" data-addlesson="" style="margin-right:6px">+ Lesson</button>' : "") + '<button class="pill" id="syncbtn" style="margin-right:6px">Sync</button><button class="pill" data-a="today">Today</button></div>';
   if (S.students.length > 1) html += '<div class="chips" style="margin-top:6px"><button class="lg' + (Object.keys(calFilter).some(function (k) { return calFilter[k]; }) ? "" : " on") + '" data-f="" style="border-color:' + (Object.keys(calFilter).some(function (k) { return calFilter[k]; }) ? "transparent" : "var(--muted)") + '"><b style="background:var(--muted)"></b>Everyone</button>' +
     S.students.map(function (s) { var on = calFilter[s.id], c = colorOf(s.id); return '<button class="lg" data-f="' + s.id + '" style="border-color:' + (on ? c : "transparent") + ';background:' + (on ? c + "2e" : "var(--card)") + '"><b style="background:' + c + '"></b>' + esc(s.name) + '</button>'; }).join("") + '</div>';
   html += '<div class="seg">' + [["day", "Day"], ["week", "Week"], ["month", "Month"], ["upcoming", "Upcoming"]].map(function (m) { return '<button data-mode="' + m[0] + '" class="' + (calMode === m[0] ? "on" : "") + '">' + m[1] + '</button>'; }).join("") + '</div>';
@@ -1710,6 +1711,90 @@ function groupView(id) {
   };
   app.onclick = function (e) { var b = e.target.closest("[data-l]"); if (b) { var l = S.lessons.filter(function (x) { return x.id === b.dataset.l; })[0]; if (l) openAttendance(l, function () { groupView(id); }); } };
 }
+
+/* ---------- add, edit and delete lessons (coach) ---------- */
+var LKINDS = ["Private lesson", "Semi private", "Junior clinic", "Group lesson", "Match play"];
+function itemLines(t) { return String(t || "").split("\n").map(function (x) { return x.trim(); }).filter(Boolean); }
+function buildItems(old, plan, hw) {
+  var pool = (old || []).slice(), out = [];
+  function take(text, isHw) {
+    var i = pool.findIndex(function (x) { return x.text === text && !!(x.isHomework || x.is_homework) === isHw; });
+    if (i >= 0) { var it = pool.splice(i, 1)[0]; out.push({ id: it.id, text: text, is_homework: isHw, done: !!it.done }); }
+    else out.push({ id: newId(), text: text, is_homework: isHw, done: false });
+  }
+  plan.forEach(function (t) { take(t, false); }); hw.forEach(function (t) { take(t, true); });
+  return out;
+}
+function setLinks(l, ids) {
+  var have = sids(l), add = ids.filter(function (x) { return have.indexOf(x) < 0; }), drop = have.filter(function (x) { return ids.indexOf(x) < 0; }), jobs = [];
+  if (add.length) jobs.push(api("lesson_students", { json: add.map(function (s) { return { lesson_id: l.id, student_id: s }; }), prefer: "return=minimal" }));
+  drop.forEach(function (s) { jobs.push(api("lesson_students?lesson_id=eq." + l.id + "&student_id=eq." + s, { method: "DELETE", prefer: "return=minimal" })); });
+  l.lesson_students = ids.map(function (s) { return { student_id: s }; });
+  return Promise.all(jobs);
+}
+function lessonForm(l, presetSid) {
+  var isNew = !l, d = l ? new Date(l.start_at) : (function () { var n = new Date(); n.setMinutes(0, 0, 0); n.setHours(n.getHours() + 1); return n; })();
+  var have = l ? sids(l) : (presetSid ? [presetSid] : []);
+  var tv = ("0" + d.getHours()).slice(-2) + ":" + ("0" + d.getMinutes()).slice(-2), mins = [30, 45, 60, 75, 90, 120, 150, 180];
+  var plan = l ? planOf(l).map(function (i) { return i.text; }).join("\n") : "", hw = l ? hwOf(l).map(function (i) { return i.text; }).join("\n") : "";
+  var later = l && l.series_id ? S.lessons.filter(function (x) { return x.series_id === l.series_id && new Date(x.start_at) > new Date(l.start_at) && !isPast(x); }) : [];
+  var mod = openModal('<h3 style="font-size:19px;margin:0 0 8px">' + (isNew ? "Add a lesson" : "Edit lesson") + '</h3>' +
+    '<div class="cap">Players</div><div class="pklist" style="max-height:160px">' + (S.students.length ? S.students.map(function (s) { return '<label class="pk"><input type="checkbox" data-m="' + s.id + '"' + (have.indexOf(s.id) >= 0 ? " checked" : "") + '> <span>' + esc(s.name) + '</span></label>'; }).join("") : '<div class="small muted">No students yet.</div>') + '</div>' +
+    '<div class="row" style="gap:8px"><div class="grow"><div class="cap">Date</div><input id="ld" type="date" value="' + dayStr(d) + '"></div><div class="grow"><div class="cap">Starts at</div><input id="lt" type="time" value="' + tv + '"></div></div>' +
+    '<div class="row" style="gap:8px"><div class="grow"><div class="cap">Length</div><select id="ll">' + mins.map(function (m) { return '<option value="' + m + '"' + (m === (l ? l.minutes : 60) ? " selected" : "") + '>' + (m >= 60 ? hrsText(m) + " hr" : m + " min") + '</option>'; }).join("") + '</select></div><div class="grow"><div class="cap">Type</div><select id="lk">' + LKINDS.map(function (k) { return '<option' + (l && l.kind === k ? " selected" : "") + '>' + k + '</option>'; }).join("") + '</select></div></div>' +
+    '<input id="lp" placeholder="Location, like Court 4" value="' + esc(l ? l.location : "") + '"><input id="lf" placeholder="Focus, like Serve or Footwork" value="' + esc(l ? l.focus : "") + '">' +
+    (isNew ? '<div class="row" style="gap:8px"><div class="grow"><div class="cap">Repeat</div><select id="lr"><option value="0">Does not repeat</option><option value="1">Every week</option></select></div><div class="grow"><div class="cap">For how many weeks</div><input id="lw" type="number" min="2" max="52" value="8"></div></div>' : "") +
+    '<div class="cap" style="margin-top:6px">Lesson plan (one per line)</div><textarea id="lpl" rows="3" placeholder="Serve toss drill&#10;Second serve targets">' + esc(plan) + '</textarea>' +
+    '<div class="cap">Homework (one per line)</div><textarea id="lh" rows="2" placeholder="10 tosses a day">' + esc(hw) + '</textarea>' +
+    (isNew ? "" : '<div class="cap">Recap</div><textarea id="lrc" rows="3" placeholder="What you worked on">' + esc(l.recap || "") + '</textarea>') +
+    (later.length ? '<label class="pk" style="margin-top:6px"><input type="checkbox" id="lall"> <span>Also update the ' + later.length + ' later lessons in this repeat (time, length, place, type, players)</span></label>' : "") +
+    '<div class="err small" id="le"></div><button class="btn" id="lsave" style="margin-top:10px">' + (isNew ? "Add lesson" : "Save changes") + '</button>' +
+    (isNew ? "" : '<button class="btn ghost" id="ldel" style="margin-top:8px;color:var(--danger)">Delete this lesson</button>' + (later.length ? '<button class="btn ghost" id="ldel2" style="margin-top:8px;color:var(--danger)">Delete this and the ' + later.length + ' later ones</button>' : "")), null);
+  var err = function (t) { $("#le", mod).textContent = t; };
+  var fail = function (er) { err(er.message); $$("button", mod).forEach(function (b) { b.disabled = false; }); };
+  mod.addEventListener("click", function (e) {
+    var id = e.target.id; if (!id) return;
+    if (id === "ldel" || id === "ldel2") {
+      var many = id === "ldel2", list = many ? [l].concat(later) : [l];
+      if (!window.confirm(many ? "Delete this lesson and " + later.length + " later ones?" : "Delete this lesson?")) return;
+      e.target.disabled = true;
+      return Promise.all(list.map(function (x) { return delRow("lessons", x.id); })).then(function () {
+        var gone = {}; list.forEach(function (x) { gone[x.id] = 1; }); S.lessons = S.lessons.filter(function (x) { return !gone[x.id]; });
+        document.querySelectorAll(".modal").forEach(function (m) { m.remove(); }); render();
+      }).catch(fail);
+    }
+    if (id !== "lsave") return;
+    var ids = $$("input[data-m]", mod).filter(function (c) { return c.checked; }).map(function (c) { return c.dataset.m; });
+    if (!ids.length) return err("Pick at least one player.");
+    if (!$("#ld", mod).value || !$("#lt", mod).value) return err("Pick a date and time.");
+    var start = new Date($("#ld", mod).value + "T" + $("#lt", mod).value), f = { minutes: +$("#ll", mod).value, kind: $("#lk", mod).value, location: $("#lp", mod).value.trim(), focus: $("#lf", mod).value.trim() };
+    var items = buildItems(l ? l.items : [], itemLines($("#lpl", mod).value), itemLines($("#lh", mod).value));
+    e.target.disabled = true; err("");
+    if (isNew) {
+      var weeks = $("#lr", mod).value === "1" ? Math.max(2, Math.min(52, parseInt($("#lw", mod).value, 10) || 8)) : 1, series = weeks > 1 ? newId() : null, rows = [], links = [];
+      for (var w = 0; w < weeks; w++) {
+        var at = new Date(start); at.setDate(start.getDate() + 7 * w);
+        var row = { id: newId(), coach_id: S.session.user.id, start_at: at.toISOString(), minutes: f.minutes, location: f.location, kind: f.kind, focus: f.focus, series_id: series, items: items.map(function (i) { return { id: newId(), text: i.text, is_homework: i.is_homework, done: false }; }), recap: "" };
+        rows.push(row); ids.forEach(function (s) { links.push({ lesson_id: row.id, student_id: s }); });
+      }
+      return api("lessons", { json: rows, prefer: "return=minimal" }).then(function () { return api("lesson_students", { json: links, prefer: "return=minimal" }); }).then(function () {
+        rows.forEach(function (r) { r.lesson_students = ids.map(function (s) { return { student_id: s }; }); S.lessons.push(r); });
+        S.lessons.sort(function (a, b) { return new Date(a.start_at) - new Date(b.start_at); });
+        mod.remove(); render();
+      }).catch(fail);
+    }
+    var all = $("#lall", mod) && $("#lall", mod).checked, patch = { start_at: start.toISOString(), minutes: f.minutes, kind: f.kind, location: f.location, focus: f.focus, items: items, recap: $("#lrc", mod).value.trim() };
+    Object.keys(patch).forEach(function (k) { l[k] = patch[k]; });
+    var jobs = [patchRow("lessons", l.id, patch), setLinks(l, ids)];
+    if (all) later.forEach(function (x) {
+      var dt = new Date(x.start_at); dt.setHours(start.getHours(), start.getMinutes(), 0, 0);
+      var p2 = { start_at: dt.toISOString(), minutes: f.minutes, kind: f.kind, location: f.location }; Object.keys(p2).forEach(function (k) { x[k] = p2[k]; });
+      jobs.push(patchRow("lessons", x.id, p2), setLinks(x, ids));
+    });
+    Promise.all(jobs).then(function () { S.lessons.sort(function (a, b) { return new Date(a.start_at) - new Date(b.start_at); }); document.querySelectorAll(".modal").forEach(function (m) { m.remove(); }); render(); }).catch(fail);
+  });
+}
+document.addEventListener("click", function (e) { var b = e.target.closest && e.target.closest("[data-addlesson]"); if (b && S.profile && S.profile.role === "coach") lessonForm(null, b.dataset.addlesson || null); });
 
 /* ---------- start ---------- */
 if (S.session) boot(); else render();
