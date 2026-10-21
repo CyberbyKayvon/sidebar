@@ -1683,12 +1683,12 @@ function calView() {
     S.students.map(function (s) { var on = calFilter[s.id], c = colorOf(s.id); return '<button class="lg" data-f="' + s.id + '" style="border-color:' + (on ? c : "transparent") + ';background:' + (on ? c + "2e" : "var(--card)") + '"><b style="background:' + c + '"></b>' + esc(s.name) + '</button>'; }).join("") + '</div>';
   html += '<div class="seg">' + [["day", "Day"], ["week", "Week"], ["month", "Month"], ["upcoming", "Upcoming"]].map(function (m) { return '<button data-mode="' + m[0] + '" class="' + (calMode === m[0] ? "on" : "") + '">' + m[1] + '</button>'; }).join("") + '</div>';
   var marks = marksFor(all);
-  function strip(only) {
+  function strip(only, navOnly) {
     var days = weekDaysOf(calDay), t = days[0].toLocaleDateString(undefined, { month: "short", day: "numeric" }) + " to " + days[6].toLocaleDateString(undefined, { month: "short", day: "numeric" });
-    return '<div class="nav"><button class="circ" data-s="-7">' + ico("back", 16) + '</button><div class="t">' + esc(t) + '</div><button class="circ" data-s="7">' + ico("chev", 16) + '</button></div><div class="wkstrip"' + (only ? ' style="grid-template-columns:repeat(' + only.length + ',minmax(0,1fr));gap:10px"' : "") + '>' + (only || days).map(function (d) {
+    return '<div class="nav"><button class="circ" data-s="-7">' + ico("back", 16) + '</button><div class="t">' + esc(t) + '</div><button class="circ" data-s="7">' + ico("chev", 16) + '</button></div>' + (navOnly ? "" : '<div class="wkstrip"' + (only ? ' style="grid-template-columns:repeat(' + only.length + ',minmax(0,1fr));gap:10px"' : "") + '>' + (only || days).map(function (d) {
       var cols = (marks[d.toDateString()] || []).slice(0, 3);
       return '<button data-d="' + d.getTime() + '"><small>' + d.toLocaleDateString(undefined, { weekday: "narrow" }) + '</small><span class="dn' + (sameDay(d, calDay) ? " sel" : "") + (sameDay(d, new Date()) ? " today" : "") + '">' + d.getDate() + '</span><span class="dots">' + cols.map(function (c) { return '<i style="background:' + c + '"></i>'; }).join("") + '</span></button>';
-    }).join("") + '</div>';
+    }).join("") + '</div>');
   }
   var dayLs = all.filter(function (l) { return sameDay(l.start_at, calDay); });
   if (calMode === "day") {
@@ -1703,7 +1703,7 @@ function calView() {
     if (all.some(function (l) { return sameDay(l.start_at, wd[6]); })) cols.push(wd[6]);
     if (all.some(function (l) { return sameDay(l.start_at, wd[0]); })) cols.unshift(wd[0]);
     document.body.classList.add("wk-wide");
-    html += strip(cols) + '<div class="wk5" style="margin-top:10px;--n:' + cols.length + '">' + cols.map(function (d) {
+    html += strip(cols, true) + '<div class="wk5" style="margin-top:10px;--n:' + cols.length + '">' + cols.map(function (d) {
       var ls = all.filter(function (l) { return sameDay(l.start_at, d); });
       return '<div><div class="dh' + (sameDay(d, new Date()) ? " today" : "") + '">' + esc(fmtDate(d, { weekday: "short", month: "short", day: "numeric" })) + '</div>' + (ls.length ? ls.map(agendaCard).join("") : '<div class="muted small">Nothing scheduled.</div>') + '</div>';
     }).join("") + '</div>';
