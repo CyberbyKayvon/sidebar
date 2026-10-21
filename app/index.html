@@ -729,7 +729,7 @@ function loadMoney() {
     if (!S.profile || S.profile.role !== "coach") return;
     return Promise.all([soft(api("expenses?select=*&order=spent_on.desc&limit=5000")), soft(api("other_income?select=*&order=received_on.desc&limit=5000")), soft(api("recurring_charges?select=*&order=created_at.asc&limit=500")), soft(api("class_groups?select=*&order=created_at.asc&limit=500")), soft(api("attendance?select=*&limit=50000")), soft(api("student_rates?select=*&limit=1000"))]).then(function (q) {
       if (q[5]) S.stuRates = q[5]; if (q[0]) S.expenses = q[0]; if (q[1]) S.otherIncome = q[1]; if (q[2]) S.recurring = q[2]; if (q[3]) S.groups = q[3]; if (q[4]) S.attendance = q[4];
-      return runRecurring().then(applyPackagesWeb).then(billFinished);
+      return runRecurring().then(applyPackagesWeb).then(function () { return billFinished(); });
     });
   });
 }
@@ -1921,7 +1921,7 @@ function ownCharge(l, sid) { var id = lchargeId(l, sid); return S.charges.filter
 function methodDefault() { try { return localStorage.getItem("sidebar.payMethod") || "zelle"; } catch (e) { return "zelle"; } }
 function setMethodDefault(m) { try { localStorage.setItem("sidebar.payMethod", m); } catch (e) {} }
 /* Every finished private or semi private lesson for a player with a rate becomes a charge. Safe to run again and again. */
-function billFinished() {
+function billFinished(repriceSid) {
   if (!S.profile || S.profile.role !== "coach" || !S.stuRates.length) return Promise.resolve();
   var me = S.session.user.id, ch = [], rows = [], fixes = [];
   S.lessons.forEach(function (l) {
@@ -1932,7 +1932,7 @@ function billFinished() {
       var cid = lchargeId(l, sid), row = lessonPayOf(l, sid);
       if (row && row.status !== "unpaid") return;
       var due = Math.round(r.lesson_cents * Math.max(l.minutes || 60, 1) / 60), old = S.charges.filter(function (c) { return c.id === cid; })[0];
-      if (old) { if (old.amount_cents !== due && !S.payments.some(function (p) { return p.charge_id === cid; }) && !fixes.some(function (f) { return f.id === cid; })) fixes.push({ id: cid, amount_cents: due }); return; }
+      if (old) { var stale = repriceSid === sid || (old.amount_cents === r.lesson_cents && (l.minutes || 60) !== 60); if (stale && old.amount_cents !== due && !S.payments.some(function (p) { return p.charge_id === cid; }) && !fixes.some(function (f) { return f.id === cid; })) fixes.push({ id: cid, amount_cents: due }); return; }
       if (ch.some(function (c) { return c.id === cid; })) return;
       ch.push({ id: cid, coach_id: me, student_id: sid, kind: "drop_in", title: "Lesson, " + new Date(l.start_at).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" }).replace(",", ""), amount_cents: due, lessons_used: 0, created_at: new Date(lEnd(l)).toISOString() });
       rows.push({ lesson_id: l.id, student_id: sid, coach_id: me, status: "unpaid", charge_id: cid });
@@ -1975,7 +1975,7 @@ function rateForm(s, done) {
     if (e.target.id !== "rs") return;
     var cents = toCents($("#ra", mod).value); e.target.disabled = true;
     var p = cents <= 0 ? api("student_rates?student_id=eq." + s.id, { method: "DELETE", prefer: "return=minimal" }).then(function () { S.stuRates = S.stuRates.filter(function (x) { return x.student_id !== s.id; }); })
-      : (function () { var row = { student_id: s.id, coach_id: S.session.user.id, lesson_cents: cents, bill_from: $("#rf", mod).value || dayStr() }; return api("student_rates", { json: [row], prefer: "resolution=merge-duplicates,return=minimal" }).then(function () { S.stuRates = S.stuRates.filter(function (x) { return x.student_id !== s.id; }); S.stuRates.push(row); return billFinished(); }); })();
+      : (function () { var row = { student_id: s.id, coach_id: S.session.user.id, lesson_cents: cents, bill_from: $("#rf", mod).value || dayStr() }; return api("student_rates", { json: [row], prefer: "resolution=merge-duplicates,return=minimal" }).then(function () { S.stuRates = S.stuRates.filter(function (x) { return x.student_id !== s.id; }); S.stuRates.push(row); return billFinished(s.id); }); })();
     p.then(function () { mod.remove(); done(); }).catch(function (er) { $("#re", mod).textContent = er.message; e.target.disabled = false; });
   });
 }
