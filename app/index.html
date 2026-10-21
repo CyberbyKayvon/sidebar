@@ -883,11 +883,12 @@ function chargeForm(s, done) {
   });
 }
 
-function paymentForm(s, done) {
+function paymentForm(s, done, preCharge) {
   var open = openCharges(s.id), bal = balanceOf(s.id);
+  if (preCharge) { var pcg = open.filter(function (c) { return c.id === preCharge; })[0]; if (pcg) bal = pcg.amount_cents - (paidMap(s.id)[pcg.id] || 0); }
   var mod = openModal('<h3>Got paid by ' + esc(s.name) + '\'s family</h3><input id="pa" inputmode="decimal" placeholder="Amount" value="' + (bal > 0 ? (bal / 100) : "") + '">' +
     '<select id="pm">' + Object.keys(METHODS).map(function (k) { return '<option value="' + k + '">' + METHODS[k] + '</option>'; }).join("") + '</select><input id="pd" type="date" value="' + dayStr() + '">' +
-    (open.length ? '<select id="pc"><option value="">Applies to oldest open charge</option>' + open.map(function (c) { return '<option value="' + c.id + '">' + esc(c.title) + '</option>'; }).join("") + '</select>' : "") +
+    (open.length ? '<select id="pc"><option value="">Applies to oldest open charge</option>' + open.map(function (c) { return '<option value="' + c.id + '"' + (c.id === preCharge ? " selected" : "") + '>' + esc(c.title) + '</option>'; }).join("") + '</select>' : "") +
     '<input id="pn" placeholder="Note (optional)"><div id="pe" class="err small"></div><button class="btn" id="ps2">Save payment</button>');
   mod.addEventListener("click", function (e) {
     if (e.target.id !== "ps2") return;
@@ -977,13 +978,13 @@ function owedView() {
       h += '<div class="card"><div class="row c" style="justify-content:space-between"><a href="#/s/' + x.s.id + '/money" style="color:inherit;text-decoration:none"><b style="font-size:18px">' + esc(x.s.name) + '</b></a><b style="color:#d9822b;font-size:18px">' + $d(x.c) + '</b></div>' +
         openCharges(x.s.id).map(function (c) {
           var paid = pm[c.id] || 0, left = c.amount_cents - paid;
-          return '<div class="hist"><div><div style="font-weight:600">' + esc(c.title) + '</div><div class="small muted">Added ' + esc(fmtDate(c.created_at, { month: "short", day: "numeric" })) + (paid ? ", " + $d(paid) + " of " + $d(c.amount_cents) + " paid" : "") + '</div></div><b>' + $d(left) + '</b></div>';
+          return '<div class="hist"><div><div style="font-weight:600">' + esc(c.title) + '</div><div class="small muted">Added ' + esc(fmtDate(c.created_at, { month: "short", day: "numeric" })) + (paid ? ", " + $d(paid) + " of " + $d(c.amount_cents) + " paid" : "") + '</div><div class="row" style="gap:6px;margin-top:6px"><button class="pill ovp" data-s="' + x.s.id + '" data-c="' + c.id + '">Mark paid</button><button class="pill ove" data-c="' + c.id + '">Edit</button></div></div><b>' + $d(left) + '</b></div>';
         }).join("") +
         '<div class="row" style="gap:8px;margin-top:8px"><a class="btn ghost" href="#/s/' + x.s.id + '/money" style="margin:0;flex:1;text-align:center;text-decoration:none">Open money</a><button class="btn ghost rem" data-s="' + x.s.id + '" style="margin:0;flex:1">Remind</button></div></div>';
     });
     h += '<div id="remm" class="small muted"></div>';
     $("#ov").innerHTML = h;
-    $("#ov").onclick = function (e) { var rem = e.target.closest(".rem"); if (rem) { rem.disabled = true; sendReminder(rem.dataset.s).then(function () { rem.textContent = "Sent"; }).catch(function (er) { $("#remm").textContent = er.message; rem.disabled = false; }); } };
+    $("#ov").onclick = function (e) { var mp = e.target.closest(".ovp"); if (mp) { var st = S.students.filter(function (z) { return z.id === mp.dataset.s; })[0]; return paymentForm(st, owedView, mp.dataset.c); } var me2 = e.target.closest(".ove"); if (me2) return editCharge(S.charges.filter(function (z) { return z.id === me2.dataset.c; })[0], owedView); var rem = e.target.closest(".rem"); if (rem) { rem.disabled = true; sendReminder(rem.dataset.s).then(function () { rem.textContent = "Sent"; }).catch(function (er) { $("#remm").textContent = er.message; rem.disabled = false; }); } };
   });
 }
 function moneyView() {
