@@ -663,7 +663,16 @@ function openLessonById(id) { var l = S.lessons.filter(function (x) { return x.i
 /* ---------- lesson detail ---------- */
 function checklist(title, items) {
   if (!items.length) return "";
-  return '<h3 style="margin-top:14px">' + title + '</h3><ul class="plan">' + items.map(function (i) { return '<li class="' + (i.done ? "done" : "") + '" data-i="' + esc(i.id) + '" style="cursor:pointer"><span class="ck">' + (i.done ? "&#10003;" : "") + '</span><span class="x">' + esc(i.text) + '</span></li>'; }).join("") + '</ul>';
+  return '<h3 style="margin-top:14px">' + title + '</h3><ul class="plan">' + items.map(function (i) { return '<li class="' + (i.done ? "done" : "") + '" data-i="' + esc(i.id) + '" style="cursor:pointer"><span class="ck">' + (i.done ? "&#10003;" : "") + '</span><span class="x">' + esc(i.text) + itemExtras(i) + '</span></li>'; }).join("") + '</ul>';
+}
+function itemExtras(i) {
+  var lk = i.link, ph = i.photo_path || i.photoPath, h = "";
+  if (lk && /^https?:\/\//i.test(lk)) h += '<div style="margin-top:4px"><a href="' + esc(lk) + '" target="_blank" rel="noopener" style="word-break:break-all">' + esc(lk.replace(/^https?:\/\/(www\.)?/i, "").slice(0, 60)) + '</a></div>';
+  if (ph) h += '<img data-ph="' + esc(ph) + '" alt="" style="display:none;max-width:100%;max-height:220px;border-radius:10px;margin-top:6px">';
+  return h;
+}
+function hydratePhotos(root) {
+  [].forEach.call(root.querySelectorAll("img[data-ph]"), function (img) { signedUrl(img.dataset.ph).then(function (u) { if (u) { img.src = u; img.style.display = "block"; } }); });
 }
 function toggleCheck(l, itemId, li, mod) {
   var it = (l.items || []).filter(function (x) { return String(x.id).toLowerCase() === itemId.toLowerCase(); })[0]; if (!it) return;
@@ -707,7 +716,9 @@ function openLesson(l) {
     '<div class="cerr err small"></div>' +
     (S.profile.role === "coach" ? '<button class="btn ghost" id="el" style="margin-top:12px">Edit lesson</button>' : "") + (!isPast(l) ? '<button class="btn ghost" id="ics" style="margin-top:12px">Add to my calendar</button>' : "") +
     (myKid ? reqs.slice(0, 2).map(reqCard).join("") + (reqs.some(function (r) { return r.status === "pending"; }) ? "" : '<button class="btn ghost" id="rq" style="margin-top:10px">Can\'t make it or need to move it</button><div id="rqf"></div>') : ""), null);
+  hydratePhotos(mod);
   mod.addEventListener("click", function (e) {
+    if (e.target.closest("a")) return;
     var li = e.target.closest("li[data-i]"); if (li) return toggleCheck(l, li.dataset.i, li, mod);
     if (e.target.id === "ics") return downloadICS(l);
     if (e.target.id === "el") { mod.remove(); return lessonForm(l); }
@@ -2033,7 +2044,7 @@ function buildItems(old, plan, hw) {
   var pool = (old || []).slice(), out = [];
   function take(text, isHw) {
     var i = pool.findIndex(function (x) { return x.text === text && !!(x.isHomework || x.is_homework) === isHw; });
-    if (i >= 0) { var it = pool.splice(i, 1)[0]; out.push({ id: it.id, text: text, is_homework: isHw, done: !!it.done }); }
+    if (i >= 0) { var it = pool.splice(i, 1)[0], o = { id: it.id, text: text, is_homework: isHw, done: !!it.done }; if (it.link) o.link = it.link; if (it.photo_path || it.photoPath) o.photo_path = it.photo_path || it.photoPath; out.push(o); }
     else out.push({ id: newId(), text: text, is_homework: isHw, done: false });
   }
   plan.forEach(function (t) { take(t, false); }); hw.forEach(function (t) { take(t, true); });
