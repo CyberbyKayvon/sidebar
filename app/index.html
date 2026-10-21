@@ -812,8 +812,9 @@ function setLessonPay(l, sid, status, method) {
   });
 }
 function settleLessons(sid) {
-  if (balanceOf(sid) > 0) return Promise.resolve();
-  var chain = Promise.resolve();
+  var chain = Promise.resolve(), pmx = paidMap(sid);
+  S.lessons.forEach(function (l) { var r = lessonPayOf(l, sid); if (r && r.status === "paid" && r.charge_id) { var ch = S.charges.filter(function (c) { return c.id === r.charge_id; })[0]; if (ch && (pmx[ch.id] || 0) < ch.amount_cents) chain = chain.then(function () { return setLessonPay(l, sid, "unpaid"); }); } });
+  if (balanceOf(sid) > 0) return chain;
   S.lessons.forEach(function (l) { var r = lessonPayOf(l, sid); if (r && r.status === "unpaid") chain = chain.then(function () { return setLessonPay(l, sid, "paid"); }); });
   return chain;
 }
@@ -967,11 +968,25 @@ function feedView(key) {
 }
 
 /* Coach money screen: who owes, money in, Venmo and Zelle, rates */
+function moneyIssuesWeb() {
+  var out = [];
+  S.students.forEach(function (st) {
+    var pm = paidMap(st.id), seen = {};
+    chargesOf(st.id).slice().sort(function (a, b) { return a.created_at < b.created_at ? -1 : 1; }).forEach(function (c) {
+      if ((pm[c.id] || 0) >= c.amount_cents) return;
+      var k = c.title.toLowerCase() + "|" + c.amount_cents;
+      if (seen[k]) out.push({ s: st, c: c, t: c.title + " is on " + st.name + " twice", d: c.kind === "drop_in" ? "Two lessons were billed " + $d(c.amount_cents) + " each. If you only taught once, remove the extra and that lesson turns to Free." : $d(c.amount_cents) + " was added twice.", can: !S.payments.some(function (p) { return p.charge_id === c.id; }) });
+      else seen[k] = c;
+    });
+  });
+  return out;
+}
 function owedView() {
   app.innerHTML = shell('<div class="hhead"><a class="small" href="#/">&larr; Back</a><h1>Who owes you</h1></div><div id="ov"><p class="empty">Loading...</p></div>');
   loadMoney().then(function () {
     var ow = owedList(), tot = owedTotal();
     var h = '<div class="card"><div style="font-size:38px;font-weight:800;color:' + (tot > 0 ? "#d9822b" : "var(--court)") + '">' + $d(tot) + '</div><div class="muted">' + (ow.length ? "Owed by " + ow.length + (ow.length === 1 ? " family" : " families") : "All caught up") + '</div></div>';
+    moneyIssuesWeb().forEach(function (q) { h += '<div class="card" style="border-left:4px solid #d9822b"><b>' + esc(q.t) + '</b><div class="small muted">' + esc(q.d) + '</div>' + (q.can ? '<button class="pill ovx" data-c="' + q.c.id + '" style="margin-top:6px">Remove the extra one</button>' : "") + '</div>'; });
     if (!ow.length) h += '<div class="card empty">Nobody owes you anything.</div>';
     ow.forEach(function (x) {
       var pm = paidMap(x.s.id);
@@ -984,7 +999,7 @@ function owedView() {
     });
     h += '<div id="remm" class="small muted"></div>';
     $("#ov").innerHTML = h;
-    $("#ov").onclick = function (e) { var mp = e.target.closest(".ovp"); if (mp) { var st = S.students.filter(function (z) { return z.id === mp.dataset.s; })[0]; return paymentForm(st, owedView, mp.dataset.c); } var me2 = e.target.closest(".ove"); if (me2) return editCharge(S.charges.filter(function (z) { return z.id === me2.dataset.c; })[0], owedView); var rem = e.target.closest(".rem"); if (rem) { rem.disabled = true; sendReminder(rem.dataset.s).then(function () { rem.textContent = "Sent"; }).catch(function (er) { $("#remm").textContent = er.message; rem.disabled = false; }); } };
+    $("#ov").onclick = function (e) { var mp = e.target.closest(".ovp"); if (mp) { var st = S.students.filter(function (z) { return z.id === mp.dataset.s; })[0]; return paymentForm(st, owedView, mp.dataset.c); } var ox = e.target.closest(".ovx"); if (ox) { var xc = S.charges.filter(function (z) { return z.id === ox.dataset.c; })[0]; ox.disabled = true; return compLinked(xc).then(function () { return delRow("charges", xc.id); }).then(function () { S.charges = S.charges.filter(function (z) { return z.id !== xc.id; }); owedView(); }); } var me2 = e.target.closest(".ove"); if (me2) return editCharge(S.charges.filter(function (z) { return z.id === me2.dataset.c; })[0], owedView); var rem = e.target.closest(".rem"); if (rem) { rem.disabled = true; sendReminder(rem.dataset.s).then(function () { rem.textContent = "Sent"; }).catch(function (er) { $("#remm").textContent = er.message; rem.disabled = false; }); } };
   });
 }
 function moneyView() {
@@ -1114,7 +1129,7 @@ function editPayment(p, done) {
     }
     if (e.target.id === "pdl") {
       if (!confirm("Delete this payment?")) return;
-      delRow("payments", p.id).then(function () { S.payments = S.payments.filter(function (x) { return x.id !== p.id; }); mod.remove(); done(); }).catch(function (er) { $("#pe", mod).textContent = er.message; });
+      delRow("payments", p.id).then(function () { S.payments = S.payments.filter(function (x) { return x.id !== p.id; }); return settleLessons(p.student_id); }).then(function () { mod.remove(); done(); }).catch(function (er) { $("#pe", mod).textContent = er.message; });
     }
   });
 }
