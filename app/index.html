@@ -695,6 +695,7 @@ function openLesson(l) {
     if (e.target.id === "el") { mod.remove(); return lessonForm(l); }
     if (e.target.id === "attb") return openAttendance(l, function () { mod.remove(); openLesson(l); });
     var ps = e.target.closest("[data-ps]");
+    var gpp = e.target.closest("[data-gpp]"); if (gpp) { var gsid = gpp.dataset.gpp, gg = gpp.dataset.g, gon = groupPrepaid(gg, gsid), grow = { lesson_id: gg, student_id: gsid, coach_id: S.session.user.id, status: gon ? "comp" : "paid", charge_id: null }; gpp.disabled = true; return api("lesson_pay", { json: [grow], prefer: "resolution=merge-duplicates,return=minimal" }).then(function () { S.lessonPays = S.lessonPays.filter(function (x) { return !(x.lesson_id === gg && x.student_id === gsid); }); S.lessonPays.push(grow); var b = $("#paybox", mod); if (b) b.outerHTML = payBlock(l); }).catch(function (er) { alert(er.message); }); }
     var pe = e.target.closest(".pedit"); if (pe) { var pc = S.charges.filter(function (z) { return z.id === pe.dataset.c; })[0]; return editCharge(pc, function () { var b = $("#paybox", mod); if (b) b.outerHTML = payBlock(l); }); }
     if (ps) { ps.disabled = true; return setLessonPay(l, ps.dataset.sid, ps.dataset.ps, ps.dataset.pm).then(function () { var b = $("#paybox", mod); if (b) b.outerHTML = payBlock(l); }).catch(function (er) { alert(er.message); }); }
     if (e.target.id === "rq") {
@@ -831,8 +832,11 @@ function sendReminder(id, custom) {
 }
 function patchCharge(c, fields) { Object.keys(fields).forEach(function (k) { c[k] = fields[k]; }); return api("charges?id=eq." + c.id, { method: "PATCH", json: fields, prefer: "return=minimal" }); }
 function lessonPayOf(l, sid) { return S.lessonPays.filter(function (r) { return r.lesson_id === l.id && r.student_id === sid; })[0]; }
+function groupPrepaid(gid, sid) { return S.lessonPays.some(function (x) { return x.lesson_id === gid && x.student_id === sid && x.status === "paid"; }); }
 function payStatusFor(l, sid) {
-  var r = lessonPayOf(l, sid); if (r) return r.status;
+  var r = lessonPayOf(l, sid);
+  if (l.group_id && groupPrepaid(l.group_id, sid) && (!r || r.status === "unpaid")) return "paid";
+  if (r) return r.status;
   var sr = S.stuRates && S.stuRates.filter(function (x) { return x.student_id === sid; })[0];
   if (sr && sr.lesson_cents < 0 && !l.group_id && S.profile.role === "coach") return "paid";
   return (S.profile.role === "coach" && isPast(l)) ? "unpaid" : null;
@@ -877,7 +881,7 @@ function payBlock(l) {
     var st = payStatusFor(l, sid), nm = studentById(sid).name, pk = coach ? activePackage(sid) : null;
     var badge = st ? '<span class="pbadge" style="background:' + PSTAT[st][1] + '22;color:' + PSTAT[st][1] + '">' + PSTAT[st][0] + '</span>' : '<span class="small muted">Not marked yet</span>';
     var own = coach && ownCharge(l, sid), chips = coach ? '<div class="pchips">' + Object.keys(PSTAT).map(function (k) { return k === "paid" && own ? ["zelle", "venmo", "cash", "check"].map(function (m) { return '<button data-ps="paid" data-pm="' + m + '" data-sid="' + sid + '">Paid by ' + METHODS[m] + '</button>'; }).join("") : '<button data-ps="' + k + '" data-sid="' + sid + '">' + PSTAT[k][0] + '</button>'; }).join("") + '</div>' : "";
-    return '<div style="margin:6px 0">' + (ids.length > 1 ? '<b>' + esc(nm) + '</b> ' : "") + badge + (pk ? ' <span class="small muted">' + esc(pkgLine(sid)) + '</span>' : "") + priceLine(l, sid) + chips + '</div>';
+    return '<div style="margin:6px 0">' + (ids.length > 1 ? '<b>' + esc(nm) + '</b> ' : "") + badge + (pk ? ' <span class="small muted">' + esc(pkgLine(sid)) + '</span>' : "") + priceLine(l, sid) + chips + (coach && l.group_id ? '<div class="pchips"><button data-gpp="' + sid + '" data-g="' + l.group_id + '">' + (groupPrepaid(l.group_id, sid) ? "Prepaid for every session, tap to turn off" : "Mark prepaid for every session") + '</button></div>' : "") + '</div>';
   }).join("");
   return '<div id="paybox"><h3 style="margin-top:14px">Payment</h3>' + rows + '</div>';
 }
