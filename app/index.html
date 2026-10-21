@@ -779,15 +779,52 @@ function receivedSince(day) { return sum(S.payments.filter(function (p) { return
 function myPayInfo() { var me = S.session && S.session.user.id; return S.payInfos.filter(function (i) { return i.coach_id === me; })[0] || S.payInfos[0] || null; }
 var METHODS = { zelle: "Zelle", venmo: "Venmo", cash: "Cash", check: "Check", club: "Paid by club", other: "Other" };
 var PSTAT = { unpaid: ["Unpaid", "#d9822b"], paid: ["Paid", "#1d9a5b"], package: ["Package", "#2f6fd6"], club: ["Club paid", "#7c4dbd"], comp: ["Free", "#7d857f"] };
-function reminderText(id) {
-  var s = studentById(id), i = myPayInfo(), open = openCharges(id), t = "Hey " + (s.parent_name || "there") + ", quick reminder from Coach " + (S.profile.display_name || "") + ". " + s.name + " has " + $d(balanceOf(id)) + " open.";
-  if (open.length) t += " " + open.map(function (c) { return c.title + " " + $d(c.amount_cents); }).join(", ");
-  if (i) { var how = []; if (i.zelle) how.push("Zelle " + i.zelle); if (i.venmo) how.push("Venmo " + i.venmo); if (how.length) t += " You can pay by " + how.join(" or ") + "."; if (i.note) t += " " + i.note; }
+function venmoLink(cents, note) {
+  var i = myPayInfo(), h = i && (i.venmo || "").replace(/^[@\s]+|\s+$/g, "");
+  return h ? "https://venmo.com/" + encodeURIComponent(h) + "?txn=pay&amount=" + (cents / 100).toFixed(2) + "&note=" + encodeURIComponent(note) : "";
+}
+function reminderMessage(id, cents, what) {
+  var s = studentById(id), i = myPayInfo(), t = "Hey " + (s.parent_name || "there") + ", quick reminder from Coach " + (S.profile.display_name || "") + ". " + $d(cents) + " for " + what + ".", link = venmoLink(cents, what);
+  if (link) t += " Tap to pay on Venmo, the amount is filled in: " + link;
+  if (i && i.zelle) t += " Or Zelle " + i.zelle + ".";
+  if (i && i.note) t += " " + i.note;
   return t + " Thanks!";
 }
-function sendReminder(id) {
+function linkify(t) { return esc(t).replace(/(https:\/\/[^\s<]+)/g, function (u) { return '<a href="' + u + '" target="_blank" rel="noopener">' + u + '</a>'; }); }
+function reminderText(id) {
+  var open = openCharges(id);
+  return reminderMessage(id, Math.max(balanceOf(id), 0), open.length ? open.map(function (c) { return c.title; }).join(", ") : "tennis lessons");
+}
+function reminderForm(id, done) {
+  var s = studentById(id), open = openCharges(id), bal = Math.max(balanceOf(id), 0);
+  var mod = openModal('<h3>Reminder for ' + esc(s.name) + '\'s family</h3><input id="ra" inputmode="decimal" value="' + (bal / 100) + '"><textarea id="rw" rows="2">' + esc(open.length ? open.map(function (c) { return c.title; }).join(", ") : "tennis lessons") + '</textarea><div class="small muted">What they get</div><div class="card small" id="rp" style="white-space:pre-wrap;word-break:break-all"></div><div id="re2" class="err small"></div><button class="btn" id="rs">Send in Sidebar chat</button><button class="btn ghost" id="rc">Copy to text or email it myself</button><div class="small muted">They tap the Venmo link, it opens with the amount and note filled in, and they confirm.</div>');
+  var text = function () { return reminderMessage(id, toCents($("#ra", mod).value), $("#rw", mod).value.trim() || "tennis"); };
+  var draw = function () { $("#rp", mod).textContent = text(); };
+  $("#ra", mod).oninput = draw; $("#rw", mod).oninput = draw; draw();
+  mod.addEventListener("click", function (e) {
+    if (e.target.id === "rc") { try { navigator.clipboard.writeText(text()); e.target.textContent = "Copied"; } catch (er) { $("#re2", mod).textContent = "Copy it from the box above."; } return; }
+    if (e.target.id !== "rs") return;
+    if (toCents($("#ra", mod).value) <= 0) { $("#re2", mod).textContent = "Add an amount."; return; }
+    e.target.disabled = true;
+    sendReminder(id, text()).then(function () { mod.remove(); done(); }).catch(function (er) { $("#re2", mod).textContent = er.message; e.target.disabled = false; });
+  });
+}
+function packageForm(s, done) {
+  var mod = openModal('<h3>' + esc(s.name) + '\'s lesson package</h3><label class="small muted">Lessons</label><input id="pn" inputmode="numeric" value="10"><label class="small muted">Total price</label><input id="pp" inputmode="decimal" placeholder="900"><input id="pt" placeholder="Name (optional)"><label class="small muted">Start counting from</label><input id="ps" type="date" value="' + dayStr() + '"><label class="pk"><input type="checkbox" id="pg" checked> Already paid</label><div id="pgb"><select id="pm">' + Object.keys(METHODS).map(function (k) { return '<option value="' + k + '">' + METHODS[k] + '</option>'; }).join("") + '</select><label class="small muted">Date paid</label><input id="pd" type="date" value="' + dayStr() + '"></div><div id="pe" class="err small"></div><button class="btn" id="psv">Save package</button><div class="small muted">Finished lessons on or after the start date use up one lesson each, on their own.</div>');
+  $("#pg", mod).onchange = function () { $("#pgb", mod).style.display = this.checked ? "block" : "none"; };
+  mod.addEventListener("click", function (e) {
+    if (e.target.id !== "psv") return;
+    var n = parseInt($("#pn", mod).value, 10) || 0, cents = toCents($("#pp", mod).value);
+    if (n < 1 || cents <= 0) { $("#pe", mod).textContent = "Add the number of lessons and the price."; return; }
+    var me = S.session.user.id, start = $("#ps", mod).value || dayStr(), ch = { id: newId(), coach_id: me, student_id: s.id, kind: "package", title: $("#pt", mod).value.trim() || n + " lesson package", amount_cents: cents, lessons_total: n, lessons_used: 0, expires_on: null, due_on: null, created_at: new Date(start + "T00:00:00").toISOString() };
+    var pay = $("#pg", mod).checked ? { id: newId(), coach_id: me, student_id: s.id, charge_id: ch.id, amount_cents: cents, method: $("#pm", mod).value, paid_on: $("#pd", mod).value || dayStr(), note: "", created_at: new Date().toISOString() } : null;
+    e.target.disabled = true;
+    api("charges", { json: [ch], prefer: "return=minimal" }).then(function () { S.charges.push(ch); return pay ? api("payments", { json: [pay], prefer: "return=minimal" }) : null; }).then(function () { if (pay) S.payments.unshift(pay); return applyPackagesWeb(); }).then(function () { mod.remove(); done(); }).catch(function (er) { $("#pe", mod).textContent = er.message; e.target.disabled = false; });
+  });
+}
+function sendReminder(id, custom) {
   var me = S.session.user.id;
-  return api("messages", { json: { student_id: id, author_id: me, author_name: S.profile.display_name || "Coach", author_role: "coach", body: reminderText(id) }, prefer: "return=minimal" }).then(function () {
+  return api("messages", { json: { student_id: id, author_id: me, author_name: S.profile.display_name || "Coach", author_role: "coach", body: custom || reminderText(id) }, prefer: "return=minimal" }).then(function () {
     var now = new Date().toISOString();
     return Promise.all(openCharges(id).map(function (c) { c.last_reminded_at = now; return api("charges?id=eq." + c.id, { method: "PATCH", json: { last_reminded_at: now }, prefer: "return=minimal" }); }));
   });
@@ -826,7 +863,7 @@ function priceLine(l, sid) {
   else if (st === "comp") t = "Free lesson, nothing charged";
   else if (st === "club") t = "Club pays for this one";
   else if (own) return '<div class="small" style="margin-top:4px"><b>Price ' + $d(own.amount_cents) + '</b> <button class="pill pedit" data-c="' + own.id + '">Change</button></div>';
-  else if (r && r.lesson_cents > 0) t = "Price " + $d(Math.round(r.lesson_cents * Math.max(l.minutes || 60, 1) / 60)) + " at " + $d(r.lesson_cents) + " an hour, billed when the lesson ends";
+  else if (r && r.lesson_cents > 0) t = "Price " + $d(Math.round(r.lesson_cents * Math.max(l.minutes || 60, 1) / 60)) + " at " + $d(r.lesson_cents) + " an hour";
   else t = "No price yet, set this player's hourly rate on their Money tab";
   return '<div class="small muted" style="margin-top:4px">' + esc(t) + '</div>';
 }
@@ -849,7 +886,7 @@ function moneyTab(id, box) {
     var h = '<div class="card"><div class="small muted" style="font-weight:700">' + (bal > 0 ? "Owed" : bal < 0 ? "Credit" : "All paid up") + '</div><div style="font-size:40px;font-weight:800;color:' + (bal > 0 ? "#d9822b" : "var(--court)") + '">' + (bal === 0 ? "$0" : $d(Math.abs(bal))) + '</div><div class="small muted">Charged ' + $d(sum(cs, function (c) { return c.amount_cents; })) + ' &bull; Paid ' + $d(sum(ps, function (p) { return p.amount_cents; })) + '</div></div>';
     if (coach) {
       var rt = rateOf(id), pl = planFor(id);
-      h += '<button class="btn" id="ac">+ Log money or add a charge</button><div class="card" data-rate="1" style="cursor:pointer;margin:8px 0"><div class="row" style="justify-content:space-between"><b>Lesson rate</b><span class="muted">' + (rt ? $d(rt.lesson_cents) + " per hour" : "Not set") + '</span></div></div><div class="card" data-plan="1" style="cursor:pointer;margin:8px 0"><div class="row" style="justify-content:space-between"><b>Recurring payment</b><span class="muted">' + (pl ? esc(planStatusText(pl)) : "Not set") + '</span></div></div>' + (bal > 0 ? '<button class="btn ghost" id="gp" style="margin-top:8px">Got paid on what they owe</button>' : "");
+      h += '<button class="btn" id="pkb">Add a lesson package</button><button class="btn ghost" id="ac" style="margin-top:8px">+ Log money or add a charge</button><div class="card" data-rate="1" style="cursor:pointer;margin:8px 0"><div class="row" style="justify-content:space-between"><b>Lesson rate</b><span class="muted">' + (rt ? $d(rt.lesson_cents) + " per hour" : "Not set") + '</span></div></div><div class="card" data-plan="1" style="cursor:pointer;margin:8px 0"><div class="row" style="justify-content:space-between"><b>Recurring payment</b><span class="muted">' + (pl ? esc(planStatusText(pl)) : "Not set") + '</span></div></div>' + (bal > 0 ? '<button class="btn ghost" id="gp" style="margin-top:8px">Got paid on what they owe</button>' : "");
       if (bal > 0) h += '<button class="btn ghost" id="rm" style="margin-top:8px">Send payment reminder</button><div id="rmm" class="small muted"></div>';
     } else if (bal > 0 || planFor(id)) {
       var i = myPayInfo(); h += planCardHtml(s); if (bal > 0)
@@ -870,9 +907,10 @@ function moneyTab(id, box) {
       if (e.target.closest("[data-rate]")) return rateForm(s, function () { moneyTab(id, box); });
       if (e.target.closest("[data-plan]")) return planForm(s, function () { moneyTab(id, box); });
       if (e.target.id === "plok") { e.target.disabled = true; return planConfirm(s, function () { moneyTab(id, box); }); }
+      if (e.target.id === "pkb") return packageForm(s, function () { moneyTab(id, box); });
       if (e.target.id === "ac") return logForm(s.id, function () { moneyTab(id, box); });
       if (e.target.id === "gp") return paymentForm(s, function () { moneyTab(id, box); });
-      if (e.target.id === "rm") { e.target.disabled = true; sendReminder(id).then(function () { $("#rmm").textContent = "Reminder sent in chat."; }).catch(function (er) { $("#rmm").textContent = er.message; e.target.disabled = false; }); }
+      if (e.target.id === "rm") return reminderForm(id, function () { moneyTab(id, box); });
     };
   });
 }
@@ -1531,7 +1569,7 @@ function chatTab(s, box) {
       ms.forEach(function (m) {
         if (shown[m.id]) return; shown[m.id] = 1; added = true;
         var me = m.author_id === S.session.user.id, d = document.createElement("div");
-        d.className = "msg" + (me ? " me" : ""); d.innerHTML = '<small>' + esc(m.author_name) + ' &middot; ' + fmtDate(m.created_at, { month: "short", day: "numeric" }) + ' ' + fmtTime(m.created_at) + '</small>' + esc(m.body);
+        d.className = "msg" + (me ? " me" : ""); d.innerHTML = '<small>' + esc(m.author_name) + ' &middot; ' + fmtDate(m.created_at, { month: "short", day: "numeric" }) + ' ' + fmtTime(m.created_at) + '</small>' + linkify(m.body);
         c.appendChild(d);
       });
       if (!ms.length && first) c.innerHTML = '<div class="empty">No messages yet. Say hi.</div>';
