@@ -1949,7 +1949,11 @@ function gplayer(g, sid, onclose) {
     if (b.dataset.mode) { mode = b.dataset.mode; draw(); return; }
     if (b.dataset.gpaid) { paymentForm(s, draw, b.dataset.gpaid); return; }
     if (b.dataset.gedit) { editCharge(chg(b.dataset.gedit), draw); return; }
-    if (b.dataset.gpriv) { var c1 = chg(b.dataset.gpriv); if (c1) busy(setGlink(c1, g, false)); return; }
+    if (b.dataset.gpriv) {
+      var c1 = chg(b.dataset.gpriv); if (!c1) return;
+      var nm = (g.name || "").trim(), at = nm ? String(c1.title || "").toLowerCase().indexOf(nm.toLowerCase()) : -1;
+      busy((at >= 0 ? patchCharge(c1, { title: c1.title.slice(0, at) + "Private lessons" + c1.title.slice(at + nm.length) }) : Promise.resolve()).then(function () { return setGlink(c1, g, false); })); return;
+    }
     if (b.dataset.gcount) { var c2 = chg(b.dataset.gcount); if (c2) busy(setGlink(c2, g, true)); return; }
     if (b.dataset.pedit) { var p = S.payments.filter(function (x) { return x.id === b.dataset.pedit; })[0]; if (p) editPayment(p, draw); return; }
     if (b.dataset.pdel) { if (!window.confirm("Delete this payment?")) return; busy(delRow("payments", b.dataset.pdel).then(function () { S.payments = S.payments.filter(function (x) { return x.id !== b.dataset.pdel; }); })); return; }
