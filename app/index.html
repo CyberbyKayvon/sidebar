@@ -896,6 +896,7 @@ function priceLine(l, sid) {
   else if (r && r.lesson_cents < 0) t = "Prepaid, nothing to collect";
   else if (own) return '<div class="small" style="margin-top:4px"><b>Price ' + $d(own.amount_cents) + '</b> <button class="pill pedit" data-c="' + own.id + '">Change</button></div>';
   else if (r && r.lesson_cents > 0) t = "Price " + $d(Math.round(r.lesson_cents * Math.max(l.minutes || 60, 1) / 60)) + " at " + $d(r.lesson_cents) + " an hour";
+  else if (currentPkg(sid)) { var pk0 = currentPkg(sid); t = lessonsLeft(pk0) > 0 ? "On a package, " + lessonsLeft(pk0) + " of " + (pk0.lessons_total || 0) + " lessons left, nothing extra to charge" : "Package used up, set the hourly rate to bill the next ones"; }
   else t = "No price yet, set this player's hourly rate on their Money tab";
   return '<div class="small muted" style="margin-top:4px">' + esc(t) + '</div>';
 }
