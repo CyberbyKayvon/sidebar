@@ -1877,7 +1877,7 @@ function groupsView() {
 /* ---------- group money: who paid, who came ---------- */
 function glinkId(c, g) { return xorId(c.id, g.id, 0x6B); }
 function glinkStatus(c, g) { var id = glinkId(c, g), r = S.lessonPays.filter(function (x) { return x.lesson_id === id && x.student_id === c.student_id; })[0]; return r ? r.status : null; }
-function isGroupCharge(c, g) { var st = glinkStatus(c, g); if (st) return st === "paid"; var n = (g.name || "").trim().toLowerCase(); return !!n && String(c.title || "").toLowerCase().indexOf(n) >= 0; }
+function isGroupCharge(c, g) { var st = glinkStatus(c, g); if (st) return st === "paid"; var n = (g.name || "").trim().toLowerCase(), t = String(c.title || "").toLowerCase(); return !!n && (t === n || t.indexOf(n + ", ") === 0); }
 function isAnyGroupCharge(c) { return (S.groups || []).some(function (g) { return isGroupCharge(c, g); }); }
 function setGlink(c, g, inGroup) {
   var row = { lesson_id: glinkId(c, g), student_id: c.student_id, coach_id: S.session.user.id, status: inGroup ? "paid" : "comp", charge_id: null };
