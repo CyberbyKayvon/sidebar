@@ -2190,10 +2190,11 @@ function compLinked(c) {
 }
 function rateForm(s, done) {
   var r = rateOf(s.id);
-  var mod = openModal('<h3>Lesson rate for ' + esc(s.name) + '</h3><div class="small muted">What this player pays per hour. Only you see it. Every finished private or semi private lesson from the date below is charged automatically, priced by its length (30 minutes is half). Group sessions are not billed here.</div>' +
+  var mod = openModal('<h3>Lesson rate for ' + esc(s.name) + '</h3><button class="btn ghost" id="rpk" style="margin:0 0 8px">Add a lesson package</button><div class="small muted">What this player pays per hour. Only you see it. Every finished private or semi private lesson from the date below is charged automatically, priced by its length (30 minutes is half). Group sessions are not billed here.</div>' +
     '<div class="cap" style="margin-top:8px">Per hour</div><input id="ra" inputmode="decimal" placeholder="Like 100" value="' + (r && r.lesson_cents !== 0 && r.lesson_cents !== -1 ? Math.abs(r.lesson_cents) / 100 : "") + '"><div class="cap">Bill lessons from</div><input id="rf" type="date" value="' + (r ? r.bill_from : dayStr()) + '">' +
     '<label class="pk"><input type="checkbox" id="rpp"' + (r && r.lesson_cents < 0 ? " checked" : "") + '> Prepaid, lessons count as paid and nothing shows as owed</label><div class="small muted">Leave the amount blank and Prepaid off to turn billing off for this player.</div><div class="err small" id="re"></div><button class="btn" id="rs" style="margin-top:8px">Save rate</button>');
   mod.addEventListener("click", function (e) {
+    if (e.target.id === "rpk") { mod.remove(); packageForm(s, done); return; }
     if (e.target.id !== "rs") return;
     var cents = toCents($("#ra", mod).value), pre = $("#rpp", mod).checked; if (pre) cents = cents > 0 ? -cents : -1; e.target.disabled = true;
     var p = cents === 0 ? api("student_rates?student_id=eq." + s.id, { method: "DELETE", prefer: "return=minimal" }).then(function () { S.stuRates = S.stuRates.filter(function (x) { return x.student_id !== s.id; }); })
