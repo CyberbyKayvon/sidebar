@@ -730,7 +730,7 @@ function loadMoney() {
     if (!S.profile || S.profile.role !== "coach") return;
     return Promise.all([soft(api("expenses?select=*&order=spent_on.desc&limit=5000")), soft(api("other_income?select=*&order=received_on.desc&limit=5000")), soft(api("recurring_charges?select=*&order=created_at.asc&limit=500")), soft(api("class_groups?select=*&order=created_at.asc&limit=500")), soft(api("attendance?select=*&limit=50000")), soft(api("student_rates?select=*&limit=1000"))]).then(function (q) {
       if (q[5]) S.stuRates = q[5]; if (q[0]) S.expenses = q[0]; if (q[1]) S.otherIncome = q[1]; if (q[2]) S.recurring = q[2]; if (q[3]) S.groups = q[3]; if (q[4]) S.attendance = q[4];
-      return runRecurring().then(applyPackagesWeb).then(function () { return billFinished(); });
+      return runRecurring().then(applyPrepaidWeb).then(applyPackagesWeb).then(function () { return billFinished(); });
     });
   });
 }
@@ -833,6 +833,8 @@ function patchCharge(c, fields) { Object.keys(fields).forEach(function (k) { c[k
 function lessonPayOf(l, sid) { return S.lessonPays.filter(function (r) { return r.lesson_id === l.id && r.student_id === sid; })[0]; }
 function payStatusFor(l, sid) {
   var r = lessonPayOf(l, sid); if (r) return r.status;
+  var sr = S.stuRates && S.stuRates.filter(function (x) { return x.student_id === sid; })[0];
+  if (sr && sr.lesson_cents < 0 && !l.group_id && S.profile.role === "coach") return "paid";
   return (S.profile.role === "coach" && isPast(l)) ? "unpaid" : null;
 }
 function setLessonPay(l, sid, status, method) {
@@ -862,6 +864,7 @@ function priceLine(l, sid) {
   if (st === "package") t = "Package lesson, nothing charged";
   else if (st === "comp") t = "Free lesson, nothing charged";
   else if (st === "club") t = "Club pays for this one";
+  else if (r && r.lesson_cents < 0) t = "Prepaid, nothing to collect";
   else if (own) return '<div class="small" style="margin-top:4px"><b>Price ' + $d(own.amount_cents) + '</b> <button class="pill pedit" data-c="' + own.id + '">Change</button></div>';
   else if (r && r.lesson_cents > 0) t = "Price " + $d(Math.round(r.lesson_cents * Math.max(l.minutes || 60, 1) / 60)) + " at " + $d(r.lesson_cents) + " an hour";
   else t = "No price yet, set this player's hourly rate on their Money tab";
@@ -886,7 +889,7 @@ function moneyTab(id, box) {
     var h = '<div class="card"><div class="small muted" style="font-weight:700">' + (bal > 0 ? "Owed" : bal < 0 ? "Credit" : "All paid up") + '</div><div style="font-size:40px;font-weight:800;color:' + (bal > 0 ? "#d9822b" : "var(--court)") + '">' + (bal === 0 ? "$0" : $d(Math.abs(bal))) + '</div><div class="small muted">Charged ' + $d(sum(cs, function (c) { return c.amount_cents; })) + ' &bull; Paid ' + $d(sum(ps, function (p) { return p.amount_cents; })) + '</div></div>';
     if (coach) {
       var rt = rateOf(id), pl = planFor(id);
-      h += '<button class="btn" id="pkb">Add a lesson package</button><button class="btn ghost" id="ac" style="margin-top:8px">+ Log money or add a charge</button><div class="card" data-rate="1" style="cursor:pointer;margin:8px 0"><div class="row" style="justify-content:space-between"><b>Lesson rate</b><span class="muted">' + (rt ? $d(rt.lesson_cents) + " per hour" : "Not set") + '</span></div></div><div class="card" data-plan="1" style="cursor:pointer;margin:8px 0"><div class="row" style="justify-content:space-between"><b>Recurring payment</b><span class="muted">' + (pl ? esc(planStatusText(pl)) : "Not set") + '</span></div></div>' + (bal > 0 ? '<button class="btn ghost" id="gp" style="margin-top:8px">Got paid on what they owe</button>' : "");
+      h += '<button class="btn" id="pkb">Add a lesson package</button><button class="btn ghost" id="ac" style="margin-top:8px">+ Log money or add a charge</button><div class="card" data-rate="1" style="cursor:pointer;margin:8px 0"><div class="row" style="justify-content:space-between"><b>Lesson rate</b><span class="muted">' + (rt ? (rt.lesson_cents < 0 ? "Prepaid" + (rt.lesson_cents < -1 ? ", " + $d(-rt.lesson_cents) + " per hour" : "") : $d(rt.lesson_cents) + " per hour") : "Not set") + '</span></div></div><div class="card" data-plan="1" style="cursor:pointer;margin:8px 0"><div class="row" style="justify-content:space-between"><b>Recurring payment</b><span class="muted">' + (pl ? esc(planStatusText(pl)) : "Not set") + '</span></div></div>' + (bal > 0 ? '<button class="btn ghost" id="gp" style="margin-top:8px">Got paid on what they owe</button>' : "");
       if (bal > 0) h += '<button class="btn ghost" id="rm" style="margin-top:8px">Send payment reminder</button><div id="rmm" class="small muted"></div>';
     } else if (bal > 0 || planFor(id)) {
       var i = myPayInfo(); h += planCardHtml(s); if (bal > 0)
@@ -1971,6 +1974,27 @@ function ownCharge(l, sid) { var id = lchargeId(l, sid); return S.charges.filter
 function methodDefault() { try { return localStorage.getItem("sidebar.payMethod") || "zelle"; } catch (e) { return "zelle"; } }
 function setMethodDefault(m) { try { localStorage.setItem("sidebar.payMethod", m); } catch (e) {} }
 /* Every finished private or semi private lesson for a player with a rate becomes a charge. Safe to run again and again. */
+function applyPrepaidWeb() {
+  if (!S.profile || S.profile.role !== "coach" || !S.stuRates.some(function (r) { return r.lesson_cents < 0; })) return Promise.resolve();
+  var me = S.session.user.id, rows = [], chain = Promise.resolve();
+  S.lessons.forEach(function (l) {
+    if (!isPast(l) || l.group_id) return;
+    sids(l).forEach(function (sid) {
+      var r = rateOf(sid); if (!studentById(sid) || !r || r.lesson_cents >= 0) return;
+      if (lEnd(l) < new Date(r.bill_from + "T00:00:00").getTime()) return;
+      var row = lessonPayOf(l, sid); if (row && row.status !== "unpaid") return;
+      var oc = ownCharge(l, sid);
+      if (oc) { if (S.payments.some(function (p) { return p.charge_id === oc.id; })) return; chain = chain.then(function () { return dropOwnCharge(oc); }); }
+      rows.push({ lesson_id: l.id, student_id: sid, coach_id: me, status: "paid", charge_id: null });
+    });
+  });
+  return chain.then(function () {
+    if (!rows.length) return;
+    return api("lesson_pay", { json: rows, prefer: "resolution=merge-duplicates,return=minimal" }).then(function () {
+      rows.forEach(function (r) { S.lessonPays = S.lessonPays.filter(function (x) { return !(x.lesson_id === r.lesson_id && x.student_id === r.student_id); }); S.lessonPays.push(r); });
+    });
+  }).catch(function () {});
+}
 function billFinished(repriceSid) {
   if (!S.profile || S.profile.role !== "coach" || !S.stuRates.length) return Promise.resolve();
   var me = S.session.user.id, ch = [], rows = [], fixes = [];
@@ -2019,13 +2043,13 @@ function compLinked(c) {
 function rateForm(s, done) {
   var r = rateOf(s.id);
   var mod = openModal('<h3>Lesson rate for ' + esc(s.name) + '</h3><div class="small muted">What this player pays per hour. Only you see it. Every finished private or semi private lesson from the date below is charged automatically, priced by its length (30 minutes is half). Group sessions are not billed here.</div>' +
-    '<div class="cap" style="margin-top:8px">Per hour</div><input id="ra" inputmode="decimal" placeholder="Like 100" value="' + (r ? r.lesson_cents / 100 : "") + '"><div class="cap">Bill lessons from</div><input id="rf" type="date" value="' + (r ? r.bill_from : dayStr()) + '">' +
-    '<div class="small muted">Leave the amount blank to turn billing off for this player.</div><div class="err small" id="re"></div><button class="btn" id="rs" style="margin-top:8px">Save rate</button>');
+    '<div class="cap" style="margin-top:8px">Per hour</div><input id="ra" inputmode="decimal" placeholder="Like 100" value="' + (r && r.lesson_cents !== 0 && r.lesson_cents !== -1 ? Math.abs(r.lesson_cents) / 100 : "") + '"><div class="cap">Bill lessons from</div><input id="rf" type="date" value="' + (r ? r.bill_from : dayStr()) + '">' +
+    '<label class="pk"><input type="checkbox" id="rpp"' + (r && r.lesson_cents < 0 ? " checked" : "") + '> Prepaid, lessons count as paid and nothing shows as owed</label><div class="small muted">Leave the amount blank and Prepaid off to turn billing off for this player.</div><div class="err small" id="re"></div><button class="btn" id="rs" style="margin-top:8px">Save rate</button>');
   mod.addEventListener("click", function (e) {
     if (e.target.id !== "rs") return;
-    var cents = toCents($("#ra", mod).value); e.target.disabled = true;
-    var p = cents <= 0 ? api("student_rates?student_id=eq." + s.id, { method: "DELETE", prefer: "return=minimal" }).then(function () { S.stuRates = S.stuRates.filter(function (x) { return x.student_id !== s.id; }); })
-      : (function () { var row = { student_id: s.id, coach_id: S.session.user.id, lesson_cents: cents, bill_from: $("#rf", mod).value || dayStr() }; return api("student_rates", { json: [row], prefer: "resolution=merge-duplicates,return=minimal" }).then(function () { S.stuRates = S.stuRates.filter(function (x) { return x.student_id !== s.id; }); S.stuRates.push(row); return billFinished(s.id); }); })();
+    var cents = toCents($("#ra", mod).value), pre = $("#rpp", mod).checked; if (pre) cents = cents > 0 ? -cents : -1; e.target.disabled = true;
+    var p = cents === 0 ? api("student_rates?student_id=eq." + s.id, { method: "DELETE", prefer: "return=minimal" }).then(function () { S.stuRates = S.stuRates.filter(function (x) { return x.student_id !== s.id; }); })
+      : (function () { var row = { student_id: s.id, coach_id: S.session.user.id, lesson_cents: cents, bill_from: $("#rf", mod).value || dayStr() }; return api("student_rates", { json: [row], prefer: "resolution=merge-duplicates,return=minimal" }).then(function () { S.stuRates = S.stuRates.filter(function (x) { return x.student_id !== s.id; }); S.stuRates.push(row); return applyPrepaidWeb().then(function () { return billFinished(s.id); }); }); })();
     p.then(function () { mod.remove(); done(); }).catch(function (er) { $("#re", mod).textContent = er.message; e.target.disabled = false; });
   });
 }
