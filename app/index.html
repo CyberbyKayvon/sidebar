@@ -721,7 +721,7 @@ function openLesson(l) {
     (l.recap ? '<h3 style="margin-top:14px">Recap</h3><div class="recap">' + esc(l.recap) + '</div>' : "") +
     (notes.length ? '<h3 style="margin-top:14px">Lesson notes from this day</h3>' + notes.map(function (n) { return '<div style="margin:6px 0"><b>' + esc(n.title) + '</b><div class="small muted">' + esc(plain(n.summary).slice(0, 220)) + '</div></div>'; }).join("") : "") +
     '<div class="cerr err small"></div>' +
-    (S.profile.role === "coach" ? '<button class="btn ghost" id="el" style="margin-top:12px">Edit lesson</button>' : "") + (!isPast(l) ? '<button class="btn ghost" id="ics" style="margin-top:12px">Add to my calendar</button>' : "") +
+    (S.profile.role === "coach" && !isPast(l) ? '<button class="btn" id="rsk" style="margin-top:12px">Reschedule</button>' : "") + (S.profile.role === "coach" ? '<button class="btn ghost" id="el" style="margin-top:12px">Edit lesson</button>' : "") + (!isPast(l) ? '<button class="btn ghost" id="ics" style="margin-top:12px">Add to my calendar</button>' : "") +
     (myKid ? reqs.slice(0, 2).map(reqCard).join("") + (reqs.some(function (r) { return r.status === "pending"; }) ? "" : '<button class="btn ghost" id="rq" style="margin-top:10px">Can\'t make it or need to move it</button><div id="rqf"></div>') : ""), null);
   hydratePhotos(mod);
   mod.addEventListener("click", function (e) {
@@ -729,6 +729,7 @@ function openLesson(l) {
     var li = e.target.closest("li[data-i]"); if (li) return toggleCheck(l, li.dataset.i, li, mod);
     if (e.target.id === "ics") return downloadICS(l);
     if (e.target.id === "el") { mod.remove(); return lessonForm(l); }
+    if (e.target.id === "rsk") { mod.remove(); return rescheduleForm(l); }
     if (e.target.id === "attb") return openAttendance(l, function () { mod.remove(); openLesson(l); });
     var ps = e.target.closest("[data-ps]");
     var gpp = e.target.closest("[data-gpp]"); if (gpp) { var gsid = gpp.dataset.gpp, gg = gpp.dataset.g, gon = groupPrepaid(gg, gsid), grow = { lesson_id: gg, student_id: gsid, coach_id: S.session.user.id, status: gon ? "comp" : "paid", charge_id: null }; gpp.disabled = true; return api("lesson_pay", { json: [grow], prefer: "resolution=merge-duplicates,return=minimal" }).then(function () { S.lessonPays = S.lessonPays.filter(function (x) { return !(x.lesson_id === gg && x.student_id === gsid); }); S.lessonPays.push(grow); var b = $("#paybox", mod); if (b) b.outerHTML = payBlock(l); }).catch(function (er) { alert(er.message); }); }
@@ -1837,6 +1838,19 @@ function setPresent(l, sid, present) {
 function attBlock(l) {
   if (!l.group_id || S.profile.role !== "coach") return "";
   return '<button class="btn" id="attb" style="margin-top:12px">Check who showed (' + hereCount(l) + ' of ' + rosterCount(l) + ' here)</button>';
+}
+function rescheduleForm(l) {
+  var d = new Date(l.start_at), tv = ("0" + d.getHours()).slice(-2) + ":" + ("0" + d.getMinutes()).slice(-2);
+  var mod = openModal('<h3 style="font-size:19px;margin:0 0 4px">Reschedule</h3><div class="small muted">Now: ' + esc(whenText(l)) + '</div><div class="cap" style="margin-top:10px">Day</div><input id="rd" type="date" value="' + dayStr(d) + '"><div class="cap">Starts at</div><input id="rt" type="time" value="' + tv + '">' +
+    '<div class="small muted" style="margin-top:6px">' + (l.series_id ? "Only this lesson moves. The rest of the repeat stays on its days. " : "") + 'The plan, notes and payment stay with the lesson.</div><div class="err small" id="re3"></div><button class="btn" id="rgo" style="margin-top:10px">Move lesson</button>', function () { openLesson(l); });
+  $("#rgo", mod).onclick = function () {
+    var day = $("#rd", mod).value, t = $("#rt", mod).value; if (!day || !t) { $("#re3", mod).textContent = "Pick a day and a time."; return; }
+    var at = new Date(day + "T" + t + ":00"); this.disabled = true;
+    patchRow("lessons", l.id, { start_at: at.toISOString() }).then(function () {
+      l.start_at = at.toISOString(); S.lessons.sort(function (a, b) { return new Date(a.start_at) - new Date(b.start_at); });
+      mod.remove(); render();
+    }).catch(function (er) { $("#re3", mod).textContent = er.message; $("#rgo", mod).disabled = false; });
+  };
 }
 function openAttendance(l, onclose) {
   var mod = openModal('<div id="att"></div>', onclose);
