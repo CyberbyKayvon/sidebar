@@ -717,11 +717,11 @@ function openLesson(l) {
     (l.location ? '<div class="small muted" style="display:flex;gap:5px;align-items:center;margin-top:2px">' + ico("pin", 13) + esc(l.location) + '</div>' : "") +
     (names.length ? '<div class="small" style="font-weight:600;margin-top:2px">' + esc(names.join(", ")) + '</div>' : "") +
     (l.focus ? '<div style="margin-top:6px"><span class="tag">Focus: ' + esc(l.focus) + '</span></div>' : "") + '</div></div>' +
-    attBlock(l) + payBlock(l) + checklist("Lesson plan", planOf(l)) + checklist("Homework", hwOf(l)) +
+    (S.profile.role === "coach" && !isPast(l) ? '<button class="btn" id="rsk" style="margin-top:12px">Reschedule</button>' : "") + attBlock(l) + payBlock(l) + checklist("Lesson plan", planOf(l)) + checklist("Homework", hwOf(l)) +
     (l.recap ? '<h3 style="margin-top:14px">Recap</h3><div class="recap">' + esc(l.recap) + '</div>' : "") +
     (notes.length ? '<h3 style="margin-top:14px">Lesson notes from this day</h3>' + notes.map(function (n) { return '<div style="margin:6px 0"><b>' + esc(n.title) + '</b><div class="small muted">' + esc(plain(n.summary).slice(0, 220)) + '</div></div>'; }).join("") : "") +
     '<div class="cerr err small"></div>' +
-    (S.profile.role === "coach" && !isPast(l) ? '<button class="btn" id="rsk" style="margin-top:12px">Reschedule</button>' : "") + (S.profile.role === "coach" ? '<button class="btn ghost" id="el" style="margin-top:12px">Edit lesson</button>' : "") + (!isPast(l) ? '<button class="btn ghost" id="ics" style="margin-top:12px">Add to my calendar</button>' : "") +
+    (S.profile.role === "coach" ? '<button class="btn ghost" id="el" style="margin-top:12px">Edit lesson</button>' : "") + (!isPast(l) ? '<button class="btn ghost" id="ics" style="margin-top:12px">Add to my calendar</button>' : "") +
     (myKid ? reqs.slice(0, 2).map(reqCard).join("") + (reqs.some(function (r) { return r.status === "pending"; }) ? "" : '<button class="btn ghost" id="rq" style="margin-top:10px">Can\'t make it or need to move it</button><div id="rqf"></div>') : ""), null);
   hydratePhotos(mod);
   mod.addEventListener("click", function (e) {
@@ -1841,12 +1841,23 @@ function attBlock(l) {
 }
 function rescheduleForm(l) {
   var d = new Date(l.start_at), tv = ("0" + d.getHours()).slice(-2) + ":" + ("0" + d.getMinutes()).slice(-2);
-  var mod = openModal('<h3 style="font-size:19px;margin:0 0 4px">Reschedule</h3><div class="small muted">Now: ' + esc(whenText(l)) + '</div><div class="cap" style="margin-top:10px">Day</div><input id="rd" type="date" value="' + dayStr(d) + '"><div class="cap">Starts at</div><input id="rt" type="time" value="' + tv + '">' +
+  var mod = openModal('<h3 style="font-size:19px;margin:0 0 4px">Reschedule</h3><div class="small muted">Now: ' + esc(whenText(l)) + '</div><div class="cap" style="margin-top:10px">Day</div><input id="rd" type="date" value="' + dayStr(d) + '"><div class="cap">Starts at</div><input id="rt" type="time" value="' + tv + '"><div class="cap">Note (optional)</div><div class="chips" id="rr">' + ["Rain make up", "Weather", "Coach out", "Player asked"].map(function (r) { return '<button type="button" class="chp" data-r="' + r + '">' + r + '</button>'; }).join("") + '</div><input id="rn" placeholder="Or type a note">' +
     '<div class="small muted" style="margin-top:6px">' + (l.series_id ? "Only this lesson moves. The rest of the repeat stays on its days. " : "") + 'The plan, notes and payment stay with the lesson.</div><div class="err small" id="re3"></div><button class="btn" id="rgo" style="margin-top:10px">Move lesson</button>', function () { openLesson(l); });
+  mod.addEventListener("click", function (e) {
+    var b = e.target.closest("[data-r]"); if (!b) return;
+    var on = b.classList.contains("on");
+    mod.querySelectorAll("[data-r]").forEach(function (x) { x.classList.remove("on"); });
+    if (!on) b.classList.add("on");
+    $("#rn", mod).value = on ? "" : b.dataset.r;
+  });
   $("#rgo", mod).onclick = function () {
     var day = $("#rd", mod).value, t = $("#rt", mod).value; if (!day || !t) { $("#re3", mod).textContent = "Pick a day and a time."; return; }
     var at = new Date(day + "T" + t + ":00"); this.disabled = true;
-    patchRow("lessons", l.id, { start_at: at.toISOString() }).then(function () {
+    var note = $("#rn", mod).value.trim(), was = new Date(l.start_at).toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" });
+    var body = { start_at: at.toISOString() }, items = (l.items || []).slice();
+    if (note) { items.unshift({ id: newId(), text: note + ", moved from " + was, isHomework: false, done: false }); body.items = items; }
+    patchRow("lessons", l.id, body).then(function () {
+      if (note) l.items = items;
       l.start_at = at.toISOString(); S.lessons.sort(function (a, b) { return new Date(a.start_at) - new Date(b.start_at); });
       mod.remove(); render();
     }).catch(function (er) { $("#re3", mod).textContent = er.message; $("#rgo", mod).disabled = false; });
