@@ -2039,7 +2039,7 @@ function groupView(id) {
   };
   var price = g.price_mode === "free" ? "No charge" : g.price_mode === "club" ? "Club pays me" : g.price_cents ? $d(g.price_cents) + (g.price_mode === "monthly" ? " per month" : " per session") : "No price set";
   app.innerHTML = shell('<div class="hhead"><a class="small" href="#/groups">&larr; Groups</a><h1>' + esc(g.name) + '</h1><div class="small muted">' + esc(g.kind) + ', ' + esc(gsched(g)) + (g.location ? ', ' + esc(g.location) : '') + '</div></div>' +
-    '<div class="row" style="gap:8px"><button class="btn ghost" id="ged" style="margin:0;flex:1">Edit group</button><button class="btn ghost" id="gmore" style="margin:0;flex:1">Add 8 more weeks</button></div>' +
+    '<div class="row" style="gap:8px"><button class="btn ghost" id="ged" style="margin:0;flex:1">Edit group</button><button class="btn ghost" id="gmore" style="margin:0;flex:1">Add 8 more weeks</button></div><button class="btn" id="gone" style="margin-top:8px">Add one session</button>' +
     '<div class="card" style="margin-top:12px"><div class="row" style="justify-content:space-between"><b>Price</b><span>' + esc(price) + '</span></div>' + (g.capacity ? '<div class="row" style="justify-content:space-between;margin-top:6px"><b>Max players</b><span>' + g.capacity + '</span></div>' : "") + (g.note ? '<div class="small muted" style="margin-top:8px">' + esc(g.note) + '</div>' : "") + '<div class="small muted" style="margin-top:6px">Only you see price and notes.</div></div>' +
     '<h2>Players (' + m.length + ')</h2><div class="card">' + (m.length ? m.map(function (s) { var a = gacct(s.id, g), t = gtally(s.id, g); return '<button class="lr" data-gp="' + s.id + '" style="display:flex;align-items:center;gap:10px;width:100%;text-align:left;border:0;background:none;padding:8px 0"><div class="av sm">' + esc(s.name.charAt(0).toUpperCase()) + '</div><div class="grow"><b>' + esc(s.name) + '</b><div class="small" style="color:' + (gsuggest(s.id, g).length ? "#d9822b" : "#7d857f") + '">Came to ' + t.came + ' of ' + t.of + ' sessions' + (gsuggest(s.id, g).length ? ', ' + gsuggest(s.id, g).length + ' payment to check' : '') + '</div></div>' + gpill(gbadge(a)) + '</button>'; }).join("") : '<div class="small muted">No players yet. Tap Edit group to add some.</div>') + '</div>' +
     (m.length ? '<div class="small muted">Collected ' + $d(sum(m, function (s) { return gacct(s.id, g).paid; })) + ', still to collect ' + $d(sum(m, function (s) { return gacct(s.id, g).owed; })) + '. Tap a player for their payments, attendance and other money.</div>' : "") +
@@ -2047,6 +2047,19 @@ function groupView(id) {
     (past.length ? '<h2>Past sessions</h2>' + past.map(row).join("") : "") +
     '<button class="btn ghost" id="gdel" style="margin-top:18px;color:var(--danger)">Delete group</button><div class="small muted">Deleting also removes its upcoming sessions. Past ones stay as history.</div><div class="err small" id="gerr"></div>');
   $("#ged").onclick = function () { groupForm(g, null); };
+  $("#gone").onclick = function () {
+    var now = new Date(), tv = ("0" + Math.floor(g.start_minutes / 60)).slice(-2) + ":" + ("0" + (g.start_minutes % 60)).slice(-2);
+    var mod = openModal('<h3 style="font-size:19px;margin:0 0 4px">Add one session</h3><div class="small muted">' + esc(g.name) + '. Same players, place and length. No plan or focus. The regular schedule stays as it is.</div><div class="cap" style="margin-top:10px">Day</div><input id="od" type="date" value="' + dayStr(now) + '"><div class="cap">Starts at</div><input id="ot" type="time" value="' + tv + '"><div class="err small" id="oe"></div><button class="btn" id="ogo" style="margin-top:10px">Add session</button>', null);
+    $("#ogo", mod).onclick = function () {
+      var day = $("#od", mod).value, t = $("#ot", mod).value; if (!day || !t) { $("#oe", mod).textContent = "Pick a day and a time."; return; }
+      var at = new Date(day + "T" + t + ":00"), ids = (g.member_ids || []).slice(), me = S.session.user.id; this.disabled = true;
+      var l = { id: newId(), coach_id: me, start_at: at.toISOString(), minutes: g.minutes, location: g.location, kind: g.kind, focus: "", series_id: null, group_id: g.id };
+      api("lessons", { json: [l], prefer: "return=minimal" }).then(function () { return ids.length ? api("lesson_students", { json: ids.map(function (x) { return { lesson_id: l.id, student_id: x }; }), prefer: "return=minimal" }) : null; }).then(function () {
+        l.lesson_students = ids.map(function (x) { return { student_id: x }; }); l.items = []; l.recap = ""; S.lessons.push(l); S.lessons.sort(function (a, b) { return new Date(a.start_at) - new Date(b.start_at); });
+        mod.remove(); groupView(id);
+      }).catch(function (er) { $("#oe", mod).textContent = er.message; $("#ogo", mod).disabled = false; });
+    };
+  };
   $("#gmore").onclick = function () {
     var last = all.length ? new Date(all[all.length - 1].start_at) : new Date();
     this.disabled = true; makeSessions(g, 8, last > new Date() ? last : new Date()).then(function () { render(); }).catch(function (er) { $("#gerr").textContent = er.message; });
