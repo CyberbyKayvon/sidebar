@@ -2043,7 +2043,7 @@ function applyGroupPrepaidWeb() {
 function groupView(id) {
   var g = S.groups.filter(function (x) { return x.id === id; })[0];
   if (!g) { location.hash = "#/groups"; return; }
-  var loose = S.lessons.filter(function (l) { return !l.group_id && l.kind === g.kind && g.member_ids && g.member_ids.length && sids(l).length === g.member_ids.length && sids(l).every(function (i) { return g.member_ids.indexOf(i) >= 0; }); });
+  var loose = S.lessons.filter(function (l) { return !l.group_id && l.kind === g.kind && g.member_ids && g.member_ids.length && sids(l).length >= 2 && sids(l).every(function (i) { return g.member_ids.indexOf(i) >= 0; }); });
   var all = gsessions(g), up = all.filter(function (l) { return !isPast(l); }), past = all.filter(isPast).reverse().slice(0, 12), m = gmembers(g);
   var row = function (l) {
     var d = new Date(l.start_at), n = rosterCount(l), taken = attTaken(l) || isPast(l);
