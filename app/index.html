@@ -384,6 +384,7 @@ function render() {
   if (h2[0] === "find") return findView(h2[1] === "clinics" ? "clinics" : "coaches");
   if (h2[0] === "me" && S.profile.role === "coach") return h2[1] === "clinics" ? myClinicsView() : myProfileView();
   if (h2[0] === "g" && h2[1] && S.profile.role === "coach") return groupView(h2[1]);
+  if (h2[0] === "p" && h2[1] && S.profile.role === "coach") return programView(decodeURIComponent(h2[1]));
   if (h2[0] === "signup") return signupView();
   return homeView();
 }
@@ -1786,6 +1787,61 @@ function gsched(g) { return (g.weekdays.length ? g.weekdays.slice().sort(functio
 function gmembers(g) { return (g.member_ids || []).map(studentById).filter(Boolean); }
 function gsessions(g) { return S.lessons.filter(function (l) { return l.group_id === g.id; }).sort(function (a, b) { return new Date(a.start_at) - new Date(b.start_at); }); }
 function gnext(g) { return gsessions(g).filter(function (l) { return !isPast(l); })[0]; }
+function pname(g) { return String(g.name || "").split(", ")[0].trim(); }
+function plabel(g) { var p = String(g.name || "").split(", "); return p.length > 1 ? p.slice(1).join(", ") : "Current session"; }
+function psessions(g) {
+  var b = pname(g).toLowerCase();
+  return S.groups.filter(function (x) { return pname(x).toLowerCase() === b; }).sort(function (a, c) {
+    if ((a.active !== false) !== (c.active !== false)) return a.active !== false ? -1 : 1;
+    var fa = gsessions(a)[0], fc = gsessions(c)[0];
+    return (fc ? new Date(fc.start_at).getTime() : 9e15) - (fa ? new Date(fa.start_at).getTime() : 9e15);
+  });
+}
+function programs() { var seen = {}, out = []; S.groups.forEach(function (g) { var k = pname(g).toLowerCase(); if (seen[k]) return; seen[k] = 1; out.push(psessions(g)[0]); }); return out; }
+function pcard(g) {
+  var m = gmembers(g), nx = gnext(g), n = psessions(g).length;
+  return '<a class="card sc" href="#/p/' + encodeURIComponent(pname(g)) + '" style="border-left:5px solid ' + GBLUE + '"><div class="row c"><div class="av" style="background:' + GBLUE + '33;color:' + GBLUE + '">' + ico("people", 18) + '</div><div class="grow"><div class="hd">' + esc(pname(g)) + '</div><div class="sub">' + esc(gsched(g)) + (g.location ? ", " + esc(g.location) : "") + '</div></div><span class="chev">' + ico("chev") + '</span></div>' +
+    '<div class="small muted" style="margin-top:8px">' + m.length + ' players, ' + n + (n === 1 ? " session" : " sessions, newest first") + '</div>' + (nx ? '<div class="small" style="margin-top:2px">Next: ' + esc(whenText(nx)) + '</div>' : (g.active !== false ? '<div class="small" style="margin-top:2px;color:var(--ball)">Nothing scheduled yet</div>' : "")) + '</a>';
+}
+function pinGroupCharges(g) {
+  var me = S.session.user.id, rows = S.charges.filter(function (c) { return isGroupCharge(c, g) && !glinkStatus(c, g); }).map(function (c) { return { lesson_id: glinkId(c, g), student_id: c.student_id, coach_id: me, status: "paid", charge_id: null }; });
+  if (!rows.length) return Promise.resolve();
+  return upsertRow("lesson_pay", rows).then(function () { rows.forEach(function (r) { S.lessonPays = S.lessonPays.filter(function (x) { return !(x.lesson_id === r.lesson_id && x.student_id === r.student_id); }); S.lessonPays.push(r); }); });
+}
+function programView(base) {
+  var rep = S.groups.filter(function (g) { return pname(g).toLowerCase() === String(base).toLowerCase(); })[0];
+  if (!rep) { location.hash = "#/groups"; return; }
+  var tiles = psessions(rep);
+  var tile = function (g) {
+    var all = gsessions(g), held = all.filter(isPast).length, nx = gnext(g), live = g.active !== false;
+    var range = all.length ? fmtDate(new Date(all[0].start_at), { month: "short", day: "numeric" }) + (all.length > 1 ? " to " + fmtDate(new Date(all[all.length - 1].start_at), { month: "short", day: "numeric" }) : "") : "No dates yet";
+    return '<a class="card sc" href="#/g/' + g.id + '" style="border-left:5px solid ' + GBLUE + ';min-height:130px"><span class="tag" style="' + (live ? "background:var(--ball);color:#000" : "") + '">' + (live ? "CURRENT" : "PAST") + '</span><div class="hd" style="font-size:20px;margin-top:6px">' + esc(plabel(g)) + '</div><div class="small muted">' + esc(range) + '</div><div class="small" style="margin-top:8px;font-weight:600">' + gmembers(g).length + ' players, ' + held + ' of ' + all.length + ' held</div>' + (nx ? '<div class="small">Next: ' + esc(whenText(nx)) + '</div>' : (live ? '<div class="small" style="color:var(--ball)">Nothing scheduled</div>' : "")) + '</a>';
+  };
+  app.innerHTML = shell('<div class="hhead"><a class="small" href="#/groups">&larr; Groups</a><h1>' + esc(pname(rep)) + '</h1><div class="small muted">Each tile is one session, like a month. Tap one for its players, payments, attendance and dates.</div></div><div class="grid" style="margin-top:12px">' + tiles.map(tile).join("") + '<button class="card sc" id="pnew" style="border:2px dashed var(--line);min-height:130px;text-align:center;font-weight:700">+ New session<div class="small muted" style="font-weight:400">Clean slate</div></button></div>');
+  $("#pnew").onclick = function () { newSessionForm(tiles[0]); };
+}
+function newSessionForm(from) {
+  var nx = new Date(); nx.setMonth(nx.getMonth() + 1, 1);
+  var mod = openModal('<h3 style="font-size:19px;margin:0 0 6px">New session</h3><div class="cap">Name</div><input id="sn" value="' + esc(pname(from) + ", " + nx.toLocaleDateString(undefined, { month: "long" })) + '"><div class="small muted">Anything you like, like ' + esc(pname(from)) + ', November or Fall block.</div><div class="cap" style="margin-top:8px">First day</div><input id="sd" type="date" value="' + dayStr(nx) + '"><div class="cap">Weeks to schedule</div><input id="sw" inputmode="numeric" value="4">' +
+    '<div class="small muted" style="margin-top:8px">Copies the same players, days, time, place and price. No prepaid, no old payments, clean attendance. The last session stays saved as history.</div><div class="err small" id="se"></div><button class="btn" id="sgo" style="margin-top:10px">Start session</button>', null);
+  $("#sgo", mod).onclick = function () {
+    var name = $("#sn", mod).value.trim(), day = $("#sd", mod).value, wk = Math.max(1, Math.min(16, +$("#sw", mod).value || 4));
+    if (!name || !day) { $("#se", mod).textContent = "Add a name and a start day."; return; }
+    var b = this; b.disabled = true; b.textContent = "Starting...";
+    var me = S.session.user.id, fresh = { id: newId(), coach_id: from.coach_id || me, name: name, kind: from.kind, minutes: from.minutes, location: from.location, weekdays: from.weekdays, start_minutes: from.start_minutes, price_cents: from.price_cents, price_mode: from.price_mode, capacity: from.capacity, note: from.note, member_ids: from.member_ids, active: true };
+    pinGroupCharges(from).then(function () {
+      var keep = S.charges.filter(function (c) { return isGroupCharge(c, fresh); }).map(function (c) { return { lesson_id: glinkId(c, fresh), student_id: c.student_id, coach_id: me, status: "comp", charge_id: null }; });
+      return keep.length ? upsertRow("lesson_pay", keep).then(function () { keep.forEach(function (r) { S.lessonPays.push(r); }); }) : null;
+    }).then(function () { return upsertRow("class_groups", [fresh]); }).then(function () {
+      S.groups.push(fresh);
+      var closedName = from.name;
+      if (closedName.indexOf(", ") < 0) { var past = gsessions(from).filter(isPast), ref = past.length ? new Date(past[past.length - 1].start_at) : new Date(day + "T00:00:00"); if (!past.length) ref.setMonth(ref.getMonth() - 1); closedName = from.name + ", " + ref.toLocaleDateString(undefined, { month: "long" }); }
+      return patchRow("class_groups", from.id, { name: closedName, active: false }).then(function () { from.name = closedName; from.active = false; });
+    }).then(function () { return makeSessions(fresh, wk, new Date(new Date(day + "T00:00:00").getTime() - 1)); }).then(function () {
+      mod.remove(); location.hash = "#/p/" + encodeURIComponent(pname(fresh)); render();
+    }).catch(function (er) { $("#se", mod).textContent = er.message; b.disabled = false; b.textContent = "Start session"; });
+  };
+}
 function gcard(g) {
   var m = gmembers(g), nx = gnext(g), names = m.map(function (s) { return s.name; }).join(", ");
   return '<a class="card sc" href="#/g/' + g.id + '" style="border-left:5px solid ' + GBLUE + '"><div class="row c"><div class="av" style="background:' + GBLUE + '33;color:' + GBLUE + '">' + ico("people", 18) + '</div><div class="grow"><div class="hd">' + esc(g.name) + '</div><div class="sub">' + esc(gsched(g)) + (g.location ? ", " + esc(g.location) : "") + '</div></div><span class="chev">' + ico("chev") + '</span></div>' +
@@ -1793,8 +1849,8 @@ function gcard(g) {
 }
 function groupsHome(box) {
   if (!box) return;
-  var gs = S.groups.filter(function (g) { return g.active !== false; });
-  box.innerHTML = '<div class="row c" style="margin:20px 0 8px"><div class="grow"><div style="font-weight:700;font-size:17px">Groups</div><div class="small muted">' + (gs.length ? gs.length + (gs.length === 1 ? " group" : " groups") : "Clinics, camps and team practices") + '</div></div><a href="#/groups" style="font-weight:600;font-size:14px;text-decoration:none">' + (gs.length ? "All groups" : "Set one up") + '</a></div>' + (gs.length ? '<div class="grid">' + gs.slice(0, 4).map(gcard).join("") + '</div>' : "");
+  var gs = programs();
+  box.innerHTML = '<div class="row c" style="margin:20px 0 8px"><div class="grow"><div style="font-weight:700;font-size:17px">Groups</div><div class="small muted">' + (gs.length ? gs.length + (gs.length === 1 ? " group" : " groups") : "Clinics, camps and team practices") + '</div></div><a href="#/groups" style="font-weight:600;font-size:14px;text-decoration:none">' + (gs.length ? "All groups" : "Set one up") + '</a></div>' + (gs.length ? '<div class="grid">' + gs.slice(0, 4).map(pcard).join("") + '</div>' : "");
 }
 function makeSessions(g, weeks, fromDay) {
   var from = startOfDay(fromDay || new Date()), now = Date.now(), series = newId(), rows = [], me = S.session.user.id;
@@ -1911,7 +1967,8 @@ function groupForm(g0, done) {
     var ng = { id: g.id, coach_id: S.session.user.id, name: name, kind: $("#gk", mod).value, minutes: +$("#gl", mod).value, location: $("#gp", mod).value.trim(), weekdays: days.sort(function (a, b) { return a - b; }), start_minutes: (+t[0]) * 60 + (+t[1] || 0), price_cents: toCents($("#gc", mod).value), price_mode: $("#gm", mod).value, capacity: parseInt($("#gx", mod).value, 10) || null, note: $("#go", mod).value.trim(), member_ids: ids, active: true };
     var from = isNew && $("#gs", mod).value ? new Date($("#gs", mod).value + "T00:00:00") : new Date();
     e.target.disabled = true; err.textContent = "";
-    upsertRow("class_groups", [ng]).then(function () {
+    var prev = S.groups.filter(function (x) { return x.id === ng.id; })[0];
+    (prev && prev.name !== ng.name ? pinGroupCharges(prev) : Promise.resolve()).then(function () { return upsertRow("class_groups", [ng]); }).then(function () {
       var old = S.groups.filter(function (x) { return x.id === ng.id; })[0], i = S.groups.indexOf(old);
       if (i >= 0) S.groups[i] = ng; else S.groups.push(ng);
       return (old ? alignGroup(ng, old) : Promise.resolve()).then(function () { return makeSessions(ng, 8, from); });
@@ -1919,8 +1976,8 @@ function groupForm(g0, done) {
   });
 }
 function groupsView() {
-  var gs = S.groups.filter(function (g) { return g.active !== false; });
-  app.innerHTML = shell('<div class="hhead"><a class="small" href="#/">&larr; Home</a><h1>Groups</h1></div><button class="btn" id="ng">+ New group</button>' + (gs.length ? '<div class="grid" style="margin-top:12px">' + gs.map(gcard).join("") + '</div>' : '<div class="card empty" style="margin-top:12px">No groups yet. Make one for your clinic, camp or team practice, add players once and the sessions show up on your schedule.</div>'));
+  var gs = programs();
+  app.innerHTML = shell('<div class="hhead"><a class="small" href="#/">&larr; Home</a><h1>Groups</h1></div><button class="btn" id="ng">+ New group</button>' + (gs.length ? '<div class="grid" style="margin-top:12px">' + gs.map(pcard).join("") + '</div>' : '<div class="card empty" style="margin-top:12px">No groups yet. Make one for your clinic, camp or team practice, add players once and the sessions show up on your schedule.</div>'));
   $("#ng").onclick = function () { groupForm(null, null); };
 }
 /* ---------- group money: who paid, who came ---------- */
@@ -2050,8 +2107,8 @@ function groupView(id) {
     return '<button class="lr" data-l="' + l.id + '" style="border-left:4px solid ' + GBLUE + '"><div class="db"><div><small>' + esc(d.toLocaleDateString(undefined, { weekday: "short" }).toUpperCase()) + '</small>' + d.getDate() + '</div></div><div class="mid"><div class="k">' + esc(fmtDate(d, { weekday: "short", month: "short", day: "numeric" })) + ', ' + esc(rangeText(l)) + '</div><div class="w">' + (taken ? hereCount(l) + " of " + n + " here" : n + (n === 1 ? " player" : " players")) + (l.location ? ", " + esc(l.location) : "") + '</div></div><div class="rt"><span class="chev">' + ico("chev", 14) + '</span></div></button>';
   };
   var price = g.price_mode === "free" ? "No charge" : g.price_mode === "club" ? "Club pays me" : g.price_cents ? $d(g.price_cents) + (g.price_mode === "monthly" ? " per month" : " per session") : "No price set";
-  app.innerHTML = shell('<div class="hhead"><a class="small" href="#/groups">&larr; Groups</a><h1>' + esc(g.name) + '</h1><div class="small muted">' + esc(g.kind) + ', ' + esc(gsched(g)) + (g.location ? ', ' + esc(g.location) : '') + '</div></div>' +
-    '<div class="row" style="gap:8px"><button class="btn ghost" id="ged" style="margin:0;flex:1">Edit group</button><button class="btn ghost" id="gmore" style="margin:0;flex:1">Add 8 more weeks</button></div><button class="btn" id="gone" style="margin-top:8px">Add one session</button>' + (g.active !== false ? '<button class="btn ghost" id="gnew" style="margin-top:8px">Start next month fresh</button><div class="small muted">Clean copy: same players, days, time, place and price. No prepaid, no old payments. Upcoming sessions move over and this month stays as history.</div>' : "") + (loose.length ? '<button class="btn ghost" id="glink" style="margin-top:8px">Link ' + loose.length + ' sessions to ' + esc(g.name) + '</button><div class="small muted">Same players, but they show names instead of the group name.</div>' : "") +
+  app.innerHTML = shell('<div class="hhead"><a class="small" href="#/p/' + encodeURIComponent(pname(g)) + '">&larr; ' + esc(pname(g)) + '</a><h1>' + esc(g.name) + '</h1><div class="small muted">' + esc(g.kind) + ', ' + esc(gsched(g)) + (g.location ? ', ' + esc(g.location) : '') + '</div></div>' +
+    '<div class="row" style="gap:8px"><button class="btn ghost" id="ged" style="margin:0;flex:1">Edit group</button><button class="btn ghost" id="gmore" style="margin:0;flex:1">Add 8 more weeks</button></div><button class="btn" id="gone" style="margin-top:8px">Add one session</button>' + (loose.length ? '<button class="btn ghost" id="glink" style="margin-top:8px">Link ' + loose.length + ' sessions to ' + esc(g.name) + '</button><div class="small muted">Same players, but they show names instead of the group name.</div>' : "") +
     '<div class="card" style="margin-top:12px"><div class="row" style="justify-content:space-between"><b>Price</b><span>' + esc(price) + '</span></div>' + (g.capacity ? '<div class="row" style="justify-content:space-between;margin-top:6px"><b>Max players</b><span>' + g.capacity + '</span></div>' : "") + (g.note ? '<div class="small muted" style="margin-top:8px">' + esc(g.note) + '</div>' : "") + '<div class="small muted" style="margin-top:6px">Only you see price and notes.</div></div>' +
     '<h2>Players (' + m.length + ')</h2><div class="card">' + (m.length ? m.map(function (s) { var a = gacct(s.id, g), t = gtally(s.id, g); return '<button class="lr" data-gp="' + s.id + '" style="display:flex;align-items:center;gap:10px;width:100%;text-align:left;border:0;background:none;padding:8px 0"><div class="av sm">' + esc(s.name.charAt(0).toUpperCase()) + '</div><div class="grow"><b>' + esc(s.name) + '</b><div class="small" style="color:' + (gsuggest(s.id, g).length ? "#d9822b" : "#7d857f") + '">Came to ' + t.came + ' of ' + t.of + ' sessions' + (gsuggest(s.id, g).length ? ', ' + gsuggest(s.id, g).length + ' payment to check' : '') + '</div></div>' + gpill(gbadge(a)) + '</button>'; }).join("") : '<div class="small muted">No players yet. Tap Edit group to add some.</div>') + '</div>' +
     (m.length ? '<div class="small muted">Collected ' + $d(sum(m, function (s) { return gacct(s.id, g).paid; })) + ', still to collect ' + $d(sum(m, function (s) { return gacct(s.id, g).owed; })) + '. Tap a player for their payments, attendance and other money.</div>' : "") +
@@ -2059,29 +2116,6 @@ function groupView(id) {
     (past.length ? '<h2>Past sessions</h2>' + past.map(row).join("") : "") +
     '<button class="btn ghost" id="gdel" style="margin-top:18px;color:var(--danger)">Delete group</button><div class="small muted">Deleting also removes its upcoming sessions. Past ones stay as history.</div><div class="err small" id="gerr"></div>');
   $("#ged").onclick = function () { groupForm(g, null); };
-  if ($("#gnew")) $("#gnew").onclick = function () {
-    var b = this;
-    if (!b.dataset.sure) { b.dataset.sure = "1"; b.textContent = "Tap again to start fresh"; return; }
-    b.disabled = true; b.textContent = "Starting...";
-    var me = S.session.user.id, fresh = { id: newId(), coach_id: g.coach_id || me, name: g.name, kind: g.kind, minutes: g.minutes, location: g.location, weekdays: g.weekdays, start_minutes: g.start_minutes, price_cents: g.price_cents, price_mode: g.price_mode, capacity: g.capacity, note: g.note, member_ids: g.member_ids, active: true };
-    var rows = [];
-    S.charges.forEach(function (c) {
-      var inOld = isGroupCharge(c, g), inNew = isGroupCharge(c, fresh);
-      if (inOld) rows.push({ lesson_id: glinkId(c, g), student_id: c.student_id, coach_id: me, status: "paid", charge_id: null });
-      if (inOld || inNew) rows.push({ lesson_id: glinkId(c, fresh), student_id: c.student_id, coach_id: me, status: "comp", charge_id: null });
-    });
-    var ahead = gsessions(g).filter(function (l) { return !isPast(l); }), past = gsessions(g).filter(isPast), last = past.length ? new Date(past[past.length - 1].start_at) : new Date();
-    var closed = g.name + ", " + last.toLocaleDateString(undefined, { month: "short", year: "numeric" });
-    (rows.length ? upsertRow("lesson_pay", rows) : Promise.resolve()).then(function () {
-      rows.forEach(function (r) { S.lessonPays = S.lessonPays.filter(function (x) { return !(x.lesson_id === r.lesson_id && x.student_id === r.student_id); }); S.lessonPays.push(r); });
-      return upsertRow("class_groups", [fresh]);
-    }).then(function () {
-      S.groups.push(fresh);
-      return Promise.all(ahead.map(function (l) { return patchRow("lessons", l.id, { group_id: fresh.id }).then(function () { l.group_id = fresh.id; }); }));
-    }).then(function () { return patchRow("class_groups", g.id, { name: closed, active: false }); }).then(function () {
-      g.name = closed; g.active = false; location.hash = "#/groups"; render();
-    }).catch(function (er) { $("#gerr").textContent = er.message; b.disabled = false; b.textContent = "Start next month fresh"; delete b.dataset.sure; });
-  };
   if ($("#glink")) $("#glink").onclick = function () {
     this.disabled = true;
     Promise.all(loose.map(function (l) { return patchRow("lessons", l.id, { group_id: g.id }).then(function () { l.group_id = g.id; }); })).then(function () { render(); }).catch(function (er) { $("#gerr").textContent = er.message; });
