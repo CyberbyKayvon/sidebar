@@ -1792,7 +1792,6 @@ function plabel(g) { var p = String(g.name || "").split(", "); return p.length >
 function psessions(g) {
   var b = pname(g).toLowerCase();
   return S.groups.filter(function (x) { return pname(x).toLowerCase() === b; }).sort(function (a, c) {
-    if ((a.active !== false) !== (c.active !== false)) return a.active !== false ? -1 : 1;
     var fa = gsessions(a)[0], fc = gsessions(c)[0];
     return (fc ? new Date(fc.start_at).getTime() : 9e15) - (fa ? new Date(fa.start_at).getTime() : 9e15);
   });
@@ -1801,7 +1800,7 @@ function programs() { var seen = {}, out = []; S.groups.forEach(function (g) { v
 function pcard(g) {
   var m = gmembers(g), nx = gnext(g), n = psessions(g).length;
   return '<a class="card sc" href="#/p/' + encodeURIComponent(pname(g)) + '" style="border-left:5px solid ' + GBLUE + '"><div class="row c"><div class="av" style="background:' + GBLUE + '33;color:' + GBLUE + '">' + ico("people", 18) + '</div><div class="grow"><div class="hd">' + esc(pname(g)) + '</div><div class="sub">' + esc(gsched(g)) + (g.location ? ", " + esc(g.location) : "") + '</div></div><span class="chev">' + ico("chev") + '</span></div>' +
-    '<div class="small muted" style="margin-top:8px">' + m.length + ' players, ' + n + (n === 1 ? " session" : " sessions, newest first") + '</div>' + (nx ? '<div class="small" style="margin-top:2px">Next: ' + esc(whenText(nx)) + '</div>' : (g.active !== false ? '<div class="small" style="margin-top:2px;color:var(--ball)">Nothing scheduled yet</div>' : "")) + '</a>';
+    '<div class="small muted" style="margin-top:8px">' + m.length + ' players, ' + n + (n === 1 ? " session" : " sessions, newest first") + '</div>' + (nx ? '<div class="small" style="margin-top:2px">Next: ' + esc(whenText(nx)) + '</div>' : (g.id === psessions(g)[0].id ? '<div class="small" style="margin-top:2px;color:var(--ball)">Nothing scheduled yet</div>' : "")) + '</a>';
 }
 function pinGroupCharges(g) {
   var me = S.session.user.id, rows = S.charges.filter(function (c) { return isGroupCharge(c, g) && !glinkStatus(c, g); }).map(function (c) { return { lesson_id: glinkId(c, g), student_id: c.student_id, coach_id: me, status: "paid", charge_id: null }; });
@@ -1813,7 +1812,7 @@ function programView(base) {
   if (!rep) { location.hash = "#/groups"; return; }
   var tiles = psessions(rep);
   var tile = function (g) {
-    var all = gsessions(g), held = all.filter(isPast).length, nx = gnext(g), live = g.active !== false;
+    var all = gsessions(g), held = all.filter(isPast).length, nx = gnext(g), live = g.id === tiles[0].id;
     var range = all.length ? fmtDate(new Date(all[0].start_at), { month: "short", day: "numeric" }) + (all.length > 1 ? " to " + fmtDate(new Date(all[all.length - 1].start_at), { month: "short", day: "numeric" }) : "") : "No dates yet";
     return '<a class="card sc" href="#/g/' + g.id + '" style="border-left:5px solid ' + GBLUE + ';min-height:130px"><span class="tag" style="' + (live ? "background:var(--ball);color:#000" : "") + '">' + (live ? "CURRENT" : "PAST") + '</span><div class="hd" style="font-size:20px;margin-top:6px">' + esc(plabel(g)) + '</div><div class="small muted">' + esc(range) + '</div><div class="small" style="margin-top:8px;font-weight:600">' + gmembers(g).length + ' players, ' + held + ' of ' + all.length + ' held</div>' + (nx ? '<div class="small">Next: ' + esc(whenText(nx)) + '</div>' : (live ? '<div class="small" style="color:var(--ball)">Nothing scheduled</div>' : "")) + '</a>';
   };
