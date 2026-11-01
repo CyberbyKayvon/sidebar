@@ -2051,7 +2051,7 @@ function groupView(id) {
   };
   var price = g.price_mode === "free" ? "No charge" : g.price_mode === "club" ? "Club pays me" : g.price_cents ? $d(g.price_cents) + (g.price_mode === "monthly" ? " per month" : " per session") : "No price set";
   app.innerHTML = shell('<div class="hhead"><a class="small" href="#/groups">&larr; Groups</a><h1>' + esc(g.name) + '</h1><div class="small muted">' + esc(g.kind) + ', ' + esc(gsched(g)) + (g.location ? ', ' + esc(g.location) : '') + '</div></div>' +
-    '<div class="row" style="gap:8px"><button class="btn ghost" id="ged" style="margin:0;flex:1">Edit group</button><button class="btn ghost" id="gmore" style="margin:0;flex:1">Add 8 more weeks</button></div><button class="btn" id="gone" style="margin-top:8px">Add one session</button>' + (loose.length ? '<button class="btn ghost" id="glink" style="margin-top:8px">Link ' + loose.length + ' sessions to ' + esc(g.name) + '</button><div class="small muted">Same players, but they show names instead of the group name.</div>' : "") +
+    '<div class="row" style="gap:8px"><button class="btn ghost" id="ged" style="margin:0;flex:1">Edit group</button><button class="btn ghost" id="gmore" style="margin:0;flex:1">Add 8 more weeks</button></div><button class="btn" id="gone" style="margin-top:8px">Add one session</button>' + (g.active !== false ? '<button class="btn ghost" id="gnew" style="margin-top:8px">Start next month fresh</button><div class="small muted">Clean copy: same players, days, time, place and price. No prepaid, no old payments. Upcoming sessions move over and this month stays as history.</div>' : "") + (loose.length ? '<button class="btn ghost" id="glink" style="margin-top:8px">Link ' + loose.length + ' sessions to ' + esc(g.name) + '</button><div class="small muted">Same players, but they show names instead of the group name.</div>' : "") +
     '<div class="card" style="margin-top:12px"><div class="row" style="justify-content:space-between"><b>Price</b><span>' + esc(price) + '</span></div>' + (g.capacity ? '<div class="row" style="justify-content:space-between;margin-top:6px"><b>Max players</b><span>' + g.capacity + '</span></div>' : "") + (g.note ? '<div class="small muted" style="margin-top:8px">' + esc(g.note) + '</div>' : "") + '<div class="small muted" style="margin-top:6px">Only you see price and notes.</div></div>' +
     '<h2>Players (' + m.length + ')</h2><div class="card">' + (m.length ? m.map(function (s) { var a = gacct(s.id, g), t = gtally(s.id, g); return '<button class="lr" data-gp="' + s.id + '" style="display:flex;align-items:center;gap:10px;width:100%;text-align:left;border:0;background:none;padding:8px 0"><div class="av sm">' + esc(s.name.charAt(0).toUpperCase()) + '</div><div class="grow"><b>' + esc(s.name) + '</b><div class="small" style="color:' + (gsuggest(s.id, g).length ? "#d9822b" : "#7d857f") + '">Came to ' + t.came + ' of ' + t.of + ' sessions' + (gsuggest(s.id, g).length ? ', ' + gsuggest(s.id, g).length + ' payment to check' : '') + '</div></div>' + gpill(gbadge(a)) + '</button>'; }).join("") : '<div class="small muted">No players yet. Tap Edit group to add some.</div>') + '</div>' +
     (m.length ? '<div class="small muted">Collected ' + $d(sum(m, function (s) { return gacct(s.id, g).paid; })) + ', still to collect ' + $d(sum(m, function (s) { return gacct(s.id, g).owed; })) + '. Tap a player for their payments, attendance and other money.</div>' : "") +
@@ -2059,6 +2059,29 @@ function groupView(id) {
     (past.length ? '<h2>Past sessions</h2>' + past.map(row).join("") : "") +
     '<button class="btn ghost" id="gdel" style="margin-top:18px;color:var(--danger)">Delete group</button><div class="small muted">Deleting also removes its upcoming sessions. Past ones stay as history.</div><div class="err small" id="gerr"></div>');
   $("#ged").onclick = function () { groupForm(g, null); };
+  if ($("#gnew")) $("#gnew").onclick = function () {
+    var b = this;
+    if (!b.dataset.sure) { b.dataset.sure = "1"; b.textContent = "Tap again to start fresh"; return; }
+    b.disabled = true; b.textContent = "Starting...";
+    var me = S.session.user.id, fresh = { id: newId(), coach_id: g.coach_id || me, name: g.name, kind: g.kind, minutes: g.minutes, location: g.location, weekdays: g.weekdays, start_minutes: g.start_minutes, price_cents: g.price_cents, price_mode: g.price_mode, capacity: g.capacity, note: g.note, member_ids: g.member_ids, active: true };
+    var rows = [];
+    S.charges.forEach(function (c) {
+      var inOld = isGroupCharge(c, g), inNew = isGroupCharge(c, fresh);
+      if (inOld) rows.push({ lesson_id: glinkId(c, g), student_id: c.student_id, coach_id: me, status: "paid", charge_id: null });
+      if (inOld || inNew) rows.push({ lesson_id: glinkId(c, fresh), student_id: c.student_id, coach_id: me, status: "comp", charge_id: null });
+    });
+    var ahead = gsessions(g).filter(function (l) { return !isPast(l); }), past = gsessions(g).filter(isPast), last = past.length ? new Date(past[past.length - 1].start_at) : new Date();
+    var closed = g.name + ", " + last.toLocaleDateString(undefined, { month: "short", year: "numeric" });
+    (rows.length ? upsertRow("lesson_pay", rows) : Promise.resolve()).then(function () {
+      rows.forEach(function (r) { S.lessonPays = S.lessonPays.filter(function (x) { return !(x.lesson_id === r.lesson_id && x.student_id === r.student_id); }); S.lessonPays.push(r); });
+      return upsertRow("class_groups", [fresh]);
+    }).then(function () {
+      S.groups.push(fresh);
+      return Promise.all(ahead.map(function (l) { return patchRow("lessons", l.id, { group_id: fresh.id }).then(function () { l.group_id = fresh.id; }); }));
+    }).then(function () { return patchRow("class_groups", g.id, { name: closed, active: false }); }).then(function () {
+      g.name = closed; g.active = false; location.hash = "#/groups"; render();
+    }).catch(function (er) { $("#gerr").textContent = er.message; b.disabled = false; b.textContent = "Start next month fresh"; delete b.dataset.sure; });
+  };
   if ($("#glink")) $("#glink").onclick = function () {
     this.disabled = true;
     Promise.all(loose.map(function (l) { return patchRow("lessons", l.id, { group_id: g.id }).then(function () { l.group_id = g.id; }); })).then(function () { render(); }).catch(function (er) { $("#gerr").textContent = er.message; });
