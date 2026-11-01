@@ -2100,7 +2100,7 @@ function groupView(id) {
   var g = S.groups.filter(function (x) { return x.id === id; })[0];
   if (!g) { location.hash = "#/groups"; return; }
   var loose = S.lessons.filter(function (l) { return !l.group_id && l.kind === g.kind && g.member_ids && g.member_ids.length && sids(l).length >= 2 && sids(l).every(function (i) { return g.member_ids.indexOf(i) >= 0; }); });
-  var all = gsessions(g), up = all.filter(function (l) { return !isPast(l); }), past = all.filter(isPast).reverse().slice(0, 12), m = gmembers(g);
+  var all = gsessions(g), up = all.filter(function (l) { return !isPast(l); }), past = all.filter(isPast).reverse(), m = gmembers(g);
   var row = function (l) {
     var d = new Date(l.start_at), n = rosterCount(l), taken = attTaken(l) || isPast(l);
     return '<button class="lr" data-l="' + l.id + '" style="border-left:4px solid ' + GBLUE + '"><div class="db"><div><small>' + esc(d.toLocaleDateString(undefined, { weekday: "short" }).toUpperCase()) + '</small>' + d.getDate() + '</div></div><div class="mid"><div class="k">' + esc(fmtDate(d, { weekday: "short", month: "short", day: "numeric" })) + ', ' + esc(rangeText(l)) + '</div><div class="w">' + (taken ? hereCount(l) + " of " + n + " here" : n + (n === 1 ? " player" : " players")) + (l.location ? ", " + esc(l.location) : "") + '</div></div><div class="rt"><span class="chev">' + ico("chev", 14) + '</span></div></button>';
