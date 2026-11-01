@@ -2043,6 +2043,7 @@ function applyGroupPrepaidWeb() {
 function groupView(id) {
   var g = S.groups.filter(function (x) { return x.id === id; })[0];
   if (!g) { location.hash = "#/groups"; return; }
+  var loose = S.lessons.filter(function (l) { return !l.group_id && l.kind === g.kind && g.member_ids && g.member_ids.length && sids(l).length === g.member_ids.length && sids(l).every(function (i) { return g.member_ids.indexOf(i) >= 0; }); });
   var all = gsessions(g), up = all.filter(function (l) { return !isPast(l); }), past = all.filter(isPast).reverse().slice(0, 12), m = gmembers(g);
   var row = function (l) {
     var d = new Date(l.start_at), n = rosterCount(l), taken = attTaken(l) || isPast(l);
@@ -2050,7 +2051,7 @@ function groupView(id) {
   };
   var price = g.price_mode === "free" ? "No charge" : g.price_mode === "club" ? "Club pays me" : g.price_cents ? $d(g.price_cents) + (g.price_mode === "monthly" ? " per month" : " per session") : "No price set";
   app.innerHTML = shell('<div class="hhead"><a class="small" href="#/groups">&larr; Groups</a><h1>' + esc(g.name) + '</h1><div class="small muted">' + esc(g.kind) + ', ' + esc(gsched(g)) + (g.location ? ', ' + esc(g.location) : '') + '</div></div>' +
-    '<div class="row" style="gap:8px"><button class="btn ghost" id="ged" style="margin:0;flex:1">Edit group</button><button class="btn ghost" id="gmore" style="margin:0;flex:1">Add 8 more weeks</button></div><button class="btn" id="gone" style="margin-top:8px">Add one session</button>' +
+    '<div class="row" style="gap:8px"><button class="btn ghost" id="ged" style="margin:0;flex:1">Edit group</button><button class="btn ghost" id="gmore" style="margin:0;flex:1">Add 8 more weeks</button></div><button class="btn" id="gone" style="margin-top:8px">Add one session</button>' + (loose.length ? '<button class="btn ghost" id="glink" style="margin-top:8px">Link ' + loose.length + ' sessions to ' + esc(g.name) + '</button><div class="small muted">Same players, but they show names instead of the group name.</div>' : "") +
     '<div class="card" style="margin-top:12px"><div class="row" style="justify-content:space-between"><b>Price</b><span>' + esc(price) + '</span></div>' + (g.capacity ? '<div class="row" style="justify-content:space-between;margin-top:6px"><b>Max players</b><span>' + g.capacity + '</span></div>' : "") + (g.note ? '<div class="small muted" style="margin-top:8px">' + esc(g.note) + '</div>' : "") + '<div class="small muted" style="margin-top:6px">Only you see price and notes.</div></div>' +
     '<h2>Players (' + m.length + ')</h2><div class="card">' + (m.length ? m.map(function (s) { var a = gacct(s.id, g), t = gtally(s.id, g); return '<button class="lr" data-gp="' + s.id + '" style="display:flex;align-items:center;gap:10px;width:100%;text-align:left;border:0;background:none;padding:8px 0"><div class="av sm">' + esc(s.name.charAt(0).toUpperCase()) + '</div><div class="grow"><b>' + esc(s.name) + '</b><div class="small" style="color:' + (gsuggest(s.id, g).length ? "#d9822b" : "#7d857f") + '">Came to ' + t.came + ' of ' + t.of + ' sessions' + (gsuggest(s.id, g).length ? ', ' + gsuggest(s.id, g).length + ' payment to check' : '') + '</div></div>' + gpill(gbadge(a)) + '</button>'; }).join("") : '<div class="small muted">No players yet. Tap Edit group to add some.</div>') + '</div>' +
     (m.length ? '<div class="small muted">Collected ' + $d(sum(m, function (s) { return gacct(s.id, g).paid; })) + ', still to collect ' + $d(sum(m, function (s) { return gacct(s.id, g).owed; })) + '. Tap a player for their payments, attendance and other money.</div>' : "") +
@@ -2058,6 +2059,10 @@ function groupView(id) {
     (past.length ? '<h2>Past sessions</h2>' + past.map(row).join("") : "") +
     '<button class="btn ghost" id="gdel" style="margin-top:18px;color:var(--danger)">Delete group</button><div class="small muted">Deleting also removes its upcoming sessions. Past ones stay as history.</div><div class="err small" id="gerr"></div>');
   $("#ged").onclick = function () { groupForm(g, null); };
+  if ($("#glink")) $("#glink").onclick = function () {
+    this.disabled = true;
+    Promise.all(loose.map(function (l) { return patchRow("lessons", l.id, { group_id: g.id }).then(function () { l.group_id = g.id; }); })).then(function () { render(); }).catch(function (er) { $("#gerr").textContent = er.message; });
+  };
   $("#gone").onclick = function () {
     var now = new Date(), tv = ("0" + Math.floor(g.start_minutes / 60)).slice(-2) + ":" + ("0" + (g.start_minutes % 60)).slice(-2);
     var mod = openModal('<h3 style="font-size:19px;margin:0 0 4px">Add one session</h3><div class="small muted">' + esc(g.name) + '. Same players, place and length. No plan or focus. The regular schedule stays as it is.</div><div class="cap" style="margin-top:10px">Day</div><input id="od" type="date" value="' + dayStr(now) + '"><div class="cap">Starts at</div><input id="ot" type="time" value="' + tv + '"><div class="err small" id="oe"></div><button class="btn" id="ogo" style="margin-top:10px">Add session</button>', null);
