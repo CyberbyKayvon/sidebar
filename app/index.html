@@ -379,6 +379,7 @@ function render() {
   if (h2[0] === "books" && S.profile.role === "coach") return booksView();
   if (h2[0] === "feed" && S.profile.role === "coach") return feedView(h2[1]);
   if (h2[0] === "recurring" && S.profile.role === "coach") return recurringView();
+  if (h2[0] === "hours" && h2[2] && S.profile.role === "coach") return studentMonthView(h2[1], h2[2]);
   if (h2[0] === "hours" && S.profile.role === "coach") return hoursView(h2[1]);
   if (h2[0] === "feedback" && S.session.user.id === ADMIN_UID) return feedbackInbox();
   if (h2[0] === "groups" && S.profile.role === "coach") return groupsView();
@@ -711,6 +712,7 @@ function reqCard(r) {
     (r.proposed_start ? '<div class="small muted">Asked for ' + esc(fmtDate(r.proposed_start, { weekday: "short", month: "short", day: "numeric" })) + ', ' + esc(fmtTime(r.proposed_start)) + '</div>' : "") +
     (r.response ? '<div class="small muted">Coach: ' + esc(r.response) + '</div>' : "") + '</div>';
 }
+function stuckFocus(l) { return l.series_id ? S.lessons.filter(function (x) { return x.series_id === l.series_id && new Date(x.start_at) > new Date(l.start_at) && x.focus; }) : []; }
 function openLesson(l) {
   var d = new Date(l.start_at), names = namesOf(l);
   var reqs = S.requests.filter(function (r) { return r.lesson_id === l.id; });
@@ -724,7 +726,7 @@ function openLesson(l) {
     (l.recap ? '<h3 style="margin-top:14px">Recap</h3><div class="recap">' + esc(l.recap) + '</div>' : "") +
     (notes.length ? '<h3 style="margin-top:14px">Lesson notes from this day</h3>' + notes.map(function (n) { return '<div style="margin:6px 0"><b>' + esc(n.title) + '</b><div class="small muted">' + esc(plain(n.summary).slice(0, 220)) + '</div></div>'; }).join("") : "") +
     '<div class="cerr err small"></div>' +
-    (S.profile.role === "coach" ? '<button class="btn ghost" id="el" style="margin-top:12px">Edit lesson</button>' : "") + (!isPast(l) ? '<button class="btn ghost" id="ics" style="margin-top:12px">Add to my calendar</button>' : "") +
+    (S.profile.role === "coach" ? '<button class="btn ghost" id="el" style="margin-top:12px">Edit lesson</button>' : "") + (S.profile.role === "coach" && stuckFocus(l).length ? '<button class="btn ghost" id="cfk" style="margin-top:12px">Clear focus on the ' + stuckFocus(l).length + ' later repeats</button>' : "") + (!isPast(l) ? '<button class="btn ghost" id="ics" style="margin-top:12px">Add to my calendar</button>' : "") +
     (myKid ? reqs.slice(0, 2).map(reqCard).join("") + (reqs.some(function (r) { return r.status === "pending"; }) ? "" : '<button class="btn ghost" id="rq" style="margin-top:10px">Can\'t make it or need to move it</button><div id="rqf"></div>') : ""), null);
   hydratePhotos(mod);
   mod.addEventListener("click", function (e) {
@@ -732,6 +734,7 @@ function openLesson(l) {
     var li = e.target.closest("li[data-i]"); if (li) return toggleCheck(l, li.dataset.i, li, mod);
     if (e.target.id === "ics") return downloadICS(l);
     if (e.target.id === "el") { mod.remove(); return lessonForm(l); }
+    if (e.target.id === "cfk") { var st = stuckFocus(l); e.target.disabled = true; Promise.all(st.map(function (x) { return patchRow("lessons", x.id, { focus: "" }).then(function () { x.focus = ""; }); })).then(function () { mod.remove(); render(); }); return; }
     if (e.target.id === "rsk") { mod.remove(); return rescheduleForm(l); }
     if (e.target.id === "attb") return openAttendance(l, function () { mod.remove(); openLesson(l); });
     var ps = e.target.closest("[data-ps]");
@@ -1351,6 +1354,45 @@ function hoursOf(sid, d) {
   return m;
 }
 function hoursLine(sid) { var n = new Date(), p = new Date(n.getFullYear(), n.getMonth() - 1, 1), nm = function (d) { return d.toLocaleDateString(undefined, { month: "short" }); }; return nm(p) + " " + hrsText(hoursOf(sid, p)) + " h, " + nm(n) + " " + hrsText(hoursOf(sid, n)) + " h"; }
+function ymKey(d) { d = new Date(d); return d.getFullYear() + "-" + ("0" + (d.getMonth() + 1)).slice(-2); }
+function ymStart(ym) { return ym && /^\d{4}-\d{2}$/.test(ym) ? new Date(+ym.slice(0, 4), +ym.slice(5, 7) - 1, 1) : new Date(new Date().getFullYear(), new Date().getMonth(), 1); }
+function studentMonthStats(sid, start) {
+  var end = new Date(start.getFullYear(), start.getMonth() + 1, 1), st = studentById(sid), out = { items: [], pm: 0, gm: 0, held: 0, ahead: 0, aheadMin: 0 };
+  S.lessons.filter(function (l) { var t = new Date(l.start_at); return t >= start && t < end && sids(l).indexOf(sid) >= 0; }).sort(function (a, b) { return new Date(a.start_at) - new Date(b.start_at); }).forEach(function (l) {
+    var grp = !!l.group_id, status = !isPast(l) ? "Upcoming" : (grp && attMark(l, sid) !== true ? "Missed" : "Held");
+    out.items.push({ l: l, grp: grp, status: status });
+    if (status === "Held") { out.held++; if (grp) out.gm += l.minutes; else out.pm += l.minutes; }
+    if (status === "Upcoming") { out.ahead++; out.aheadMin += l.minutes; }
+  });
+  return out;
+}
+function studentMonthBlock(sid, start, withNav) {
+  var st = studentById(sid), x = studentMonthStats(sid, start), hh = function (m) { return hrsText(m) + " h"; };
+  var title = start.toLocaleDateString(undefined, { month: "long", year: "numeric" }), prev = new Date(start.getFullYear(), start.getMonth() - 1, 1), next = new Date(start.getFullYear(), start.getMonth() + 1, 1);
+  return (withNav ? '<div class="row c" style="justify-content:space-between;margin:8px 0"><a class="pill" href="#/hours/' + ymKey(prev) + '/' + sid + '">&larr;</a><b style="font-size:18px">' + esc(title) + '</b><a class="pill" href="#/hours/' + ymKey(next) + '/' + sid + '">&rarr;</a></div>' : "") +
+    '<div class="card"><div class="small muted">' + esc(st ? st.name : "") + ', ' + esc(title) + '</div><div style="font-size:34px;font-weight:800;color:var(--court)">' + hh(x.pm + x.gm) + '</div><div class="small muted">on court, ' + x.held + (x.held === 1 ? " session" : " sessions") + '</div>' +
+    '<div class="small" style="margin-top:6px"><span style="color:var(--court);font-weight:600">Privates ' + hh(x.pm) + '</span> &nbsp; <span style="color:' + GBLUE + ';font-weight:600">Group ' + hh(x.gm) + '</span></div>' + (x.ahead ? '<div class="small muted" style="margin-top:4px">' + x.ahead + ' more scheduled, ' + hh(x.aheadMin) + '</div>' : "") + '</div>';
+}
+function studentMonthView(ym, sid) {
+  var start = ymStart(ym), st = studentById(sid); if (!st) { location.hash = "#/hours"; return; }
+  var x = studentMonthStats(sid, start), hh = function (m) { return hrsText(m) + " h"; }, title = start.toLocaleDateString(undefined, { month: "long", year: "numeric" });
+  var share = st.name + ", " + title + ": " + hh(x.pm + x.gm) + " across " + x.held + " sessions. Privates " + hh(x.pm) + ", group " + hh(x.gm) + ".";
+  app.innerHTML = shell('<div class="hhead"><a class="small" href="#/hours/' + ym + '">&larr; Monthly hours</a><h1>' + esc(st.name) + '</h1></div>' + studentMonthBlock(sid, start, true) +
+    '<h2>Sessions</h2>' + (x.items.length ? x.items.map(function (i) {
+      var col = i.status === "Held" ? (i.grp ? GBLUE : "var(--court)") : (i.status === "Missed" ? "#f5a623" : "var(--muted)");
+      return '<button class="lr" data-l="' + i.l.id + '" style="width:100%;text-align:left"><div class="row c" style="justify-content:space-between;padding:8px 0;border-top:1px solid var(--line)"><span><b>' + esc(fmtDate(i.l.start_at, { weekday: "short", month: "short", day: "numeric" })) + '</b><div class="small" style="color:' + col + '">' + (i.grp ? "Group" : "Private") + ', ' + i.status + '</div></span><span class="small muted">' + esc(rangeText(i.l)) + ', ' + hh(i.l.minutes) + '</span></div></button>';
+    }).join("") : '<div class="card empty">Nothing in ' + esc(title) + '.</div>') + '<button class="btn ghost" id="hshare" style="margin-top:12px">Copy summary to share</button>');
+  app.onclick = function (e) {
+    var b = e.target.closest("[data-l]"); if (b) { openLessonById(b.dataset.l); return; }
+    if (e.target.id === "hshare") { (navigator.clipboard ? navigator.clipboard.writeText(share) : Promise.reject()).then(function () { e.target.textContent = "Copied"; }, function () { window.prompt("Copy this", share); }); }
+  };
+}
+document.addEventListener("click", function (e) {
+  var h = e.target.closest("[data-hl]"); if (!h) return;
+  e.preventDefault(); e.stopPropagation();
+  document.querySelectorAll(".modal").forEach(function (m) { m.remove(); });
+  location.hash = "#/hours/" + (h.dataset.ym || ymKey(new Date())) + "/" + h.dataset.hl;
+}, true);
 function hoursView(ym) {
   var now = new Date(), d0 = ym && /^\d{4}-\d{2}$/.test(ym) ? new Date(+ym.slice(0, 4), +ym.slice(5, 7) - 1, 1) : new Date(now.getFullYear(), now.getMonth() - (now.getDate() <= 7 ? 1 : 0), 1);
   var start = d0, end = new Date(d0.getFullYear(), d0.getMonth() + 1, 1), key = function (d) { return d.getFullYear() + "-" + ("0" + (d.getMonth() + 1)).slice(-2); };
@@ -1376,10 +1418,9 @@ function hoursView(ym) {
     '<div class="card"><div style="font-size:34px;font-weight:800;color:var(--court)">' + hh(court) + '</div><div class="small muted">on court, ' + list.length + (list.length === 1 ? " student" : " students") + '</div></div>' +
     (list.length ? list.map(function (r, i) {
       var tot = r.pm + r.gm;
-      return '<div class="card" style="margin-top:10px"><button class="lr" data-h="' + i + '" style="width:100%;display:block;text-align:left"><div class="row c" style="justify-content:space-between"><b style="font-size:17px">' + esc(r.st.name) + '</b><b style="font-size:20px;color:var(--court)">' + hh(tot) + '</b></div>' +
+      return '<div class="card" style="margin-top:10px"><button class="lr" data-hl="' + r.st.id + '" data-ym="' + key(start) + '" style="width:100%;display:block;text-align:left"><div class="row c" style="justify-content:space-between"><b style="font-size:17px">' + esc(r.st.name) + '</b><b style="font-size:20px;color:var(--court)">' + hh(tot) + '</b></div>' +
         '<div style="display:flex;height:8px;border-radius:99px;overflow:hidden;background:var(--line);margin:8px 0"><div style="width:' + (100 * r.pm / big) + '%;background:var(--court)"></div><div style="width:' + (100 * r.gm / big) + '%;background:' + GBLUE + '"></div></div>' +
-        '<div class="small"><span style="color:var(--court);font-weight:600">Privates ' + hh(r.pm) + ' (' + r.pc + ')</span> &nbsp; <span style="color:' + GBLUE + ';font-weight:600">Group ' + hh(r.gm) + ' (' + r.gc + ')</span></div></button><div class="hd2" id="hd' + i + '" style="display:none;margin-top:8px">' +
-        r.list.sort(function (a, b) { return new Date(a.l.start_at) - new Date(b.l.start_at); }).map(function (x) { return '<div class="row c small" style="justify-content:space-between;padding:4px 0;border-top:1px solid var(--line)"><span>' + esc(fmtDate(x.l.start_at, { weekday: "short", month: "short", day: "numeric" })) + ', ' + (x.grp ? "Group" : "Private") + '</span><span class="muted">' + esc(rangeText(x.l)) + ', ' + hh(x.l.minutes) + '</span></div>'; }).join("") + '</div></div>';
+        '<div class="small"><span style="color:var(--court);font-weight:600">Privates ' + hh(r.pm) + ' (' + r.pc + ')</span> &nbsp; <span style="color:' + GBLUE + ';font-weight:600">Group ' + hh(r.gm) + ' (' + r.gc + ')</span></div></button></div>';
     }).join("") + '<div class="small muted" style="margin-top:10px">Counts lessons that already happened. In a group, only the days a player was marked here. The big number counts each lesson once, even with several kids in it.</div><button class="btn ghost" id="hshare" style="margin-top:10px">Copy summary to share</button>' : '<div class="card empty" style="margin-top:10px">No finished lessons in ' + esc(title) + '.</div>'));
   app.onclick = function (e) {
     var b = e.target.closest("[data-h]"); if (b) { var n = $("#hd" + b.dataset.h); n.style.display = n.style.display === "none" ? "block" : "none"; return; }
@@ -1753,7 +1794,21 @@ function calView() {
       return '<div><div class="dh' + (sameDay(d, new Date()) ? " today" : "") + '">' + esc(fmtDate(d, { weekday: "short", month: "short", day: "numeric" })) + '</div>' + (ls.length ? ls.map(agendaCard).join("") : '<div class="muted small">Nothing scheduled.</div>') + '</div>';
     }).join("") + '</div>';
   } else if (calMode === "month") {
-    html += monthGrid(calDay, marks, calDay) + '<div class="dh' + (sameDay(calDay, new Date()) ? " today" : "") + '" style="margin-top:16px">' + esc(fmtDate(calDay, { weekday: "long", month: "long", day: "numeric" })) + '</div>' + (dayLs.length ? dayLs.map(agendaCard).join("") : '<div class="muted small">Nothing scheduled.</div>');
+    var picked = Object.keys(calFilter).filter(function (k) { return calFilter[k]; });
+    if (picked.length === 1 && studentById(picked[0])) {
+      var ms = new Date(calDay.getFullYear(), calDay.getMonth(), 1), me2 = new Date(calDay.getFullYear(), calDay.getMonth() + 1, 1);
+      var monthLs = all.filter(function (l) { var t = new Date(l.start_at); return t >= ms && t < me2; });
+      html += monthGrid(calDay, marks, calDay) + '<a href="#/hours/' + ymKey(ms) + '/' + picked[0] + '" data-hl="' + picked[0] + '" data-ym="' + ymKey(ms) + '" style="display:block;text-decoration:none;color:inherit;margin-top:14px">' + studentMonthBlock(picked[0], ms, false) + '</a>';
+      var lastK = "";
+      monthLs.forEach(function (l) {
+        var dk = new Date(l.start_at).toDateString();
+        if (dk !== lastK) { html += '<div class="dh' + (sameDay(l.start_at, calDay) ? " today" : "") + '" id="md' + new Date(l.start_at).getDate() + '" style="margin-top:12px">' + esc(fmtDate(l.start_at, { weekday: "long", month: "long", day: "numeric" })) + '</div>'; lastK = dk; }
+        html += agendaCard(l);
+      });
+      if (!monthLs.length) html += '<div class="muted small" style="margin-top:10px">Nothing this month.</div>';
+    } else {
+      html += monthGrid(calDay, marks, calDay) + '<div class="dh' + (sameDay(calDay, new Date()) ? " today" : "") + '" style="margin-top:16px">' + esc(fmtDate(calDay, { weekday: "long", month: "long", day: "numeric" })) + '</div>' + (dayLs.length ? dayLs.map(agendaCard).join("") : '<div class="muted small">Nothing scheduled.</div>');
+    }
   } else {
     var up = all.filter(function (l) { return !isPast(l); });
     var list = coach ? up.filter(function (l) { return upKind === "Privates" ? isPrivate(l) : !isPrivate(l); }) : up;
@@ -2253,7 +2308,7 @@ function lessonForm(l, presetSid) {
       var weeks = $("#lr", mod).value === "1" ? Math.max(2, Math.min(52, parseInt($("#lw", mod).value, 10) || 8)) : 1, series = weeks > 1 ? newId() : null, rows = [], links = [];
       for (var w = 0; w < weeks; w++) {
         var at = new Date(start); at.setDate(start.getDate() + 7 * w);
-        var row = { id: newId(), coach_id: S.session.user.id, start_at: at.toISOString(), minutes: f.minutes, location: f.location, kind: f.kind, focus: f.focus, series_id: series, items: items.map(function (i) { return { id: newId(), text: i.text, is_homework: i.is_homework, done: false }; }), recap: "" };
+        var row = { id: newId(), coach_id: S.session.user.id, start_at: at.toISOString(), minutes: f.minutes, location: f.location, kind: f.kind, focus: w === 0 ? f.focus : "", series_id: series, items: w === 0 ? items.map(function (i) { return { id: newId(), text: i.text, is_homework: i.is_homework, done: false }; }) : [], recap: "" };
         rows.push(row); ids.forEach(function (s) { links.push({ lesson_id: row.id, student_id: s }); });
       }
       return api("lessons", { json: rows, prefer: "return=minimal" }).then(function () { return api("lesson_students", { json: links, prefer: "return=minimal" }); }).then(function () {
