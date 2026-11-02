@@ -379,6 +379,7 @@ function render() {
   if (h2[0] === "books" && S.profile.role === "coach") return booksView();
   if (h2[0] === "feed" && S.profile.role === "coach") return feedView(h2[1]);
   if (h2[0] === "recurring" && S.profile.role === "coach") return recurringView();
+  if (h2[0] === "hours" && S.profile.role === "coach") return hoursView(h2[1]);
   if (h2[0] === "feedback" && S.session.user.id === ADMIN_UID) return feedbackInbox();
   if (h2[0] === "groups" && S.profile.role === "coach") return groupsView();
   if (h2[0] === "find") return findView(h2[1] === "clinics" ? "clinics" : "coaches");
@@ -556,6 +557,7 @@ function todayCards(box) {
     statCard("#/cal", "calendar", "This week", sn.wDone + " of " + sn.wk, sn.wk ? sn.wLeft + " left to coach" : "Nothing booked", null, sn.wk ? sn.wDone / sn.wk : null) +
     moneyCardHtml() +
     statCard("#/owed", "dollar", "Owed to you", $d(tot), ow.length ? ow.length + (ow.length === 1 ? " family" : " families") + " to remind" : "All caught up", tot > 0 ? "#d9822b" : null) +
+    statCard("#/hours", "list", "Monthly hours", "By student", "Hours on court with each student", null, null) +
     statCard("#/cal", "list", "Court hours this week", hrsText(hrs), hrs ? hrsText(sn.mDone) + " done, " + hrsText(sn.mLeft) + " to go" : "Nothing booked", null, hrs ? sn.mDone / hrs : null) +
     '</div>';
   box.onclick = function (e) { var b = e.target.closest("[data-l]"); if (b) openLessonById(b.dataset.l); };
@@ -1343,6 +1345,41 @@ function drawBooks() {
 }
 
 /* Repeating monthly charges */
+function hoursView(ym) {
+  var now = new Date(), d0 = ym && /^\d{4}-\d{2}$/.test(ym) ? new Date(+ym.slice(0, 4), +ym.slice(5, 7) - 1, 1) : new Date(now.getFullYear(), now.getMonth() - (now.getDate() <= 7 ? 1 : 0), 1);
+  var start = d0, end = new Date(d0.getFullYear(), d0.getMonth() + 1, 1), key = function (d) { return d.getFullYear() + "-" + ("0" + (d.getMonth() + 1)).slice(-2); };
+  var rows = {}, seen = {}, court = 0;
+  S.lessons.filter(function (l) { var t = new Date(l.start_at); return isPast(l) && t >= start && t < end; }).forEach(function (l) {
+    var any = false;
+    sids(l).forEach(function (sid) {
+      var st = studentById(sid); if (!st) return;
+      var grp = !!l.group_id; if (grp && attMark(l, sid) !== true) return;
+      var r = rows[sid] || (rows[sid] = { st: st, pm: 0, gm: 0, pc: 0, gc: 0, list: [] });
+      if (grp) { r.gm += l.minutes; r.gc++; } else { r.pm += l.minutes; r.pc++; }
+      r.list.push({ l: l, grp: grp }); any = true;
+    });
+    if (any && !seen[l.id]) { seen[l.id] = 1; court += l.minutes; }
+  });
+  var list = Object.keys(rows).map(function (k) { return rows[k]; }).sort(function (a, b) { return (b.pm + b.gm) - (a.pm + a.gm); });
+  var big = Math.max(1, list.length ? list[0].pm + list[0].gm : 1), hh = function (m) { return hrsText(m) + " h"; };
+  var title = start.toLocaleDateString(undefined, { month: "long", year: "numeric" }), prev = new Date(start.getFullYear(), start.getMonth() - 1, 1), next = new Date(start.getFullYear(), start.getMonth() + 1, 1);
+  var isCur = key(start) === key(now);
+  var share = "Hours on court, " + title + "\n\n" + list.map(function (r) { return r.st.name + ": " + hh(r.pm + r.gm) + " (" + (r.pc + r.gc) + " sessions). Privates " + hh(r.pm) + ", group " + hh(r.gm); }).join("\n") + "\n\nTotal on court: " + hh(court);
+  app.innerHTML = shell('<div class="hhead"><a class="small" href="#/">&larr; Home</a><h1>Monthly hours</h1></div>' +
+    '<div class="row c" style="justify-content:space-between;margin:8px 0"><a class="pill" href="#/hours/' + key(prev) + '">&larr;</a><b style="font-size:18px">' + esc(title) + '</b>' + (isCur ? '<span class="pill" style="opacity:.3">&rarr;</span>' : '<a class="pill" href="#/hours/' + key(next) + '">&rarr;</a>') + '</div>' +
+    '<div class="card"><div style="font-size:34px;font-weight:800;color:var(--court)">' + hh(court) + '</div><div class="small muted">on court, ' + list.length + (list.length === 1 ? " student" : " students") + '</div></div>' +
+    (list.length ? list.map(function (r, i) {
+      var tot = r.pm + r.gm;
+      return '<div class="card" style="margin-top:10px"><button class="lr" data-h="' + i + '" style="width:100%;display:block;text-align:left"><div class="row c" style="justify-content:space-between"><b style="font-size:17px">' + esc(r.st.name) + '</b><b style="font-size:20px;color:var(--court)">' + hh(tot) + '</b></div>' +
+        '<div style="display:flex;height:8px;border-radius:99px;overflow:hidden;background:var(--line);margin:8px 0"><div style="width:' + (100 * r.pm / big) + '%;background:var(--court)"></div><div style="width:' + (100 * r.gm / big) + '%;background:' + GBLUE + '"></div></div>' +
+        '<div class="small"><span style="color:var(--court);font-weight:600">Privates ' + hh(r.pm) + ' (' + r.pc + ')</span> &nbsp; <span style="color:' + GBLUE + ';font-weight:600">Group ' + hh(r.gm) + ' (' + r.gc + ')</span></div></button><div class="hd2" id="hd' + i + '" style="display:none;margin-top:8px">' +
+        r.list.sort(function (a, b) { return new Date(a.l.start_at) - new Date(b.l.start_at); }).map(function (x) { return '<div class="row c small" style="justify-content:space-between;padding:4px 0;border-top:1px solid var(--line)"><span>' + esc(fmtDate(x.l.start_at, { weekday: "short", month: "short", day: "numeric" })) + ', ' + (x.grp ? "Group" : "Private") + '</span><span class="muted">' + esc(rangeText(x.l)) + ', ' + hh(x.l.minutes) + '</span></div>'; }).join("") + '</div></div>';
+    }).join("") + '<div class="small muted" style="margin-top:10px">Counts lessons that already happened. In a group, only the days a player was marked here. The big number counts each lesson once, even with several kids in it.</div><button class="btn ghost" id="hshare" style="margin-top:10px">Copy summary to share</button>' : '<div class="card empty" style="margin-top:10px">No finished lessons in ' + esc(title) + '.</div>'));
+  app.onclick = function (e) {
+    var b = e.target.closest("[data-h]"); if (b) { var n = $("#hd" + b.dataset.h); n.style.display = n.style.display === "none" ? "block" : "none"; return; }
+    if (e.target.id === "hshare") { (navigator.clipboard ? navigator.clipboard.writeText(share) : Promise.reject()).then(function () { e.target.textContent = "Copied"; }, function () { window.prompt("Copy this", share); }); }
+  };
+}
 function recurringView() {
   app.innerHTML = shell('<div class="hhead"><a class="small" href="#/money">&larr; Money</a><h1>Repeating charges</h1></div><div id="rc"><p class="empty">Loading...</p></div>');
   loadMoney().then(drawRecurring);
