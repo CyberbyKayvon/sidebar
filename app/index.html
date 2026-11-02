@@ -467,7 +467,7 @@ function homeView() {
       var body = s.claimed
         ? '<hr class="dv">' + infoRow("calendar", nextText(s.id)) + infoRow("note", noteText(s.id)) + infoRow("trophy", tournText(s.id)) + (s.utr_rating ? infoRow("trend", "UTR " + s.utr_rating) : "")
         : '<div class="small muted" style="margin-top:12px">Not joined yet. Everything you add in the app shows up when the family joins.</div>';
-      return '<a class="card sc" href="#/s/' + s.id + '/lessons"><div class="row c"><div class="av">' + esc(s.name.charAt(0).toUpperCase()) + '</div><div class="grow"><div class="hd">' + esc(s.name) + '</div><div class="sub">Age ' + esc(s.age) + ', ' + esc(s.level) + '</div></div>' + (s.claimed ? "" : '<span class="chip">Invited</span>') + (balanceOf(s.id) > 0 ? '<span class="chip owes">Owes ' + $d(balanceOf(s.id)) + '</span>' : "") + '</div>' + body + '</a>';
+      return '<a class="card sc" href="#/s/' + s.id + '/lessons"><div class="row c"><div class="av">' + esc(s.name.charAt(0).toUpperCase()) + '</div><div class="grow"><div class="hd">' + esc(s.name) + '</div><div class="sub">Age ' + esc(s.age) + ', ' + esc(s.level) + '</div><div class="sub" style="color:var(--court);font-weight:600">' + hoursLine(s.id) + '</div></div>' + (s.claimed ? "" : '<span class="chip">Invited</span>') + (balanceOf(s.id) > 0 ? '<span class="chip owes">Owes ' + $d(balanceOf(s.id)) + '</span>' : "") + '</div>' + body + '</a>';
     }).join("") + '</div>';
   } else {
     var byCoach = {};
@@ -1345,6 +1345,12 @@ function drawBooks() {
 }
 
 /* Repeating monthly charges */
+function hoursOf(sid, d) {
+  var a = new Date(d.getFullYear(), d.getMonth(), 1), b = new Date(d.getFullYear(), d.getMonth() + 1, 1), m = 0;
+  S.lessons.forEach(function (l) { var t = new Date(l.start_at); if (!isPast(l) || t < a || t >= b || sids(l).indexOf(sid) < 0) return; if (l.group_id && attMark(l, sid) !== true) return; m += l.minutes; });
+  return m;
+}
+function hoursLine(sid) { var n = new Date(), p = new Date(n.getFullYear(), n.getMonth() - 1, 1), nm = function (d) { return d.toLocaleDateString(undefined, { month: "short" }); }; return nm(p) + " " + hrsText(hoursOf(sid, p)) + " h, " + nm(n) + " " + hrsText(hoursOf(sid, n)) + " h"; }
 function hoursView(ym) {
   var now = new Date(), d0 = ym && /^\d{4}-\d{2}$/.test(ym) ? new Date(+ym.slice(0, 4), +ym.slice(5, 7) - 1, 1) : new Date(now.getFullYear(), now.getMonth() - (now.getDate() <= 7 ? 1 : 0), 1);
   var start = d0, end = new Date(d0.getFullYear(), d0.getMonth() + 1, 1), key = function (d) { return d.getFullYear() + "-" + ("0" + (d.getMonth() + 1)).slice(-2); };
