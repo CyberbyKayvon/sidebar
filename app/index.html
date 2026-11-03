@@ -2292,7 +2292,11 @@ function lessonForm(l, presetSid) {
       var many = id === "ldel2", list = many ? [l].concat(later) : [l];
       if (!window.confirm(many ? "Delete this lesson and " + later.length + " later ones?" : "Delete this lesson?")) return;
       e.target.disabled = true;
-      return Promise.all(list.map(function (x) { return delRow("lessons", x.id); })).then(function () {
+      return Promise.all(list.map(function (x) {
+        var rows = S.lessonPays.filter(function (r) { return r.lesson_id === x.id; });
+        var credit = rows.filter(function (r) { return r.status === "package" && r.charge_id; }).map(function (r) { var pk = S.charges.filter(function (c) { return c.id === r.charge_id; })[0]; return pk ? patchCharge(pk, { lessons_used: Math.max(0, (pk.lessons_used || 0) - 1) }) : null; });
+        return Promise.all(credit).then(function () { return rows.length ? api("lesson_pay?lesson_id=eq." + x.id, { method: "DELETE", prefer: "return=minimal" }) : null; }).then(function () { S.lessonPays = S.lessonPays.filter(function (r) { return r.lesson_id !== x.id; }); return delRow("lessons", x.id); });
+      })).then(function () {
         var gone = {}; list.forEach(function (x) { gone[x.id] = 1; }); S.lessons = S.lessons.filter(function (x) { return !gone[x.id]; });
         document.querySelectorAll(".modal").forEach(function (m) { m.remove(); }); render();
       }).catch(fail);
