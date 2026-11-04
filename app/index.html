@@ -1000,12 +1000,12 @@ function paymentForm(s, done, preCharge) {
   var mod = openModal('<h3>Got paid by ' + esc(s.name) + '\'s family</h3><input id="pa" inputmode="decimal" placeholder="Amount" value="' + (bal > 0 ? (bal / 100) : "") + '">' +
     '<select id="pm">' + Object.keys(METHODS).map(function (k) { return '<option value="' + k + '">' + METHODS[k] + '</option>'; }).join("") + '</select><input id="pd" type="date" value="' + dayStr() + '">' +
     (open.length ? '<select id="pc"><option value="">Applies to oldest open charge</option>' + open.map(function (c) { return '<option value="' + c.id + '"' + (c.id === preCharge ? " selected" : "") + '>' + esc(c.title) + '</option>'; }).join("") + '</select>' : "") +
-    '<input id="pn" placeholder="Note (optional)"><div id="pe" class="err small"></div><button class="btn" id="ps2">Save payment</button>');
+    '<div class="cap">Cut taken (club, app), percent. Blank uses the default, 0 means none</div><input id="pcut2" inputmode="decimal" placeholder="0"><input id="pn" placeholder="Note (optional)"><div id="pe" class="err small"></div><button class="btn" id="ps2">Save payment</button>');
   mod.addEventListener("click", function (e) {
     if (e.target.id !== "ps2") return;
     var cents = toCents($("#pa", mod).value); if (cents <= 0) { $("#pe", mod).textContent = "Add an amount."; return; }
     var row = { id: newId(), coach_id: S.session.user.id, student_id: s.id, charge_id: ($("#pc", mod) && $("#pc", mod).value) || null, amount_cents: cents, method: $("#pm", mod).value, paid_on: $("#pd", mod).value || dayStr(), note: $("#pn", mod).value.trim(), created_at: new Date().toISOString() };
-    withFee(row, s.id, S.charges.filter(function (c) { return c.id === row.charge_id; })[0] || oldestOpen(s.id));
+    applyCut(row, s.id, S.charges.filter(function (c) { return c.id === row.charge_id; })[0] || oldestOpen(s.id), $("#pcut2", mod).value);
     e.target.disabled = true;
     api("payments", { json: [row], prefer: "return=minimal" }).then(function () { S.payments.unshift(row); return settleLessons(s.id); }).then(function () { mod.remove(); done(); }).catch(function (er) { $("#pe", mod).textContent = er.message; e.target.disabled = false; });
   });
@@ -1173,7 +1173,7 @@ function logForm(preId, done) {
     (rates ? '<div class="small muted">Start from one of your rates</div><div class="pchips">' + rates + '</div>' : "") +
     '<select id="ck">' + opts(KINDS, "monthly") + '</select><input id="ct" placeholder="Name, like Elite B&T October"><input id="ca" inputmode="decimal" placeholder="Amount (for each player)">' +
     '<div id="cl" style="display:none"><input id="cn" inputmode="numeric" placeholder="Lessons in the package" value="10"><label class="small muted">Expires (optional)</label><input id="ce" type="date"></div>' +
-    '<label class="pk"><input type="checkbox" id="paid" checked> Already paid</label><div id="pd1"><select id="pm">' + opts(METHODS, "zelle") + '</select><input id="pdt" type="date" value="' + dayStr() + '"><input id="pn" placeholder="Note (optional)"></div></div>' +
+    '<label class="pk"><input type="checkbox" id="paid" checked> Already paid</label><div id="pd1"><select id="pm">' + opts(METHODS, "zelle") + '</select><input id="pdt" type="date" value="' + dayStr() + '"><div class="cap">Cut taken (club, app), percent. Blank uses the default, 0 means none</div><input id="pcut" inputmode="decimal" placeholder="0"><input id="pn" placeholder="Note (optional)"></div></div>' +
     '<div id="club" style="display:none"><input id="ks" placeholder="Who paid you, like Boca Bath &amp; Tennis" value="Boca Bath &amp; Tennis"><input id="kt" placeholder="What for, like Clinic, 90 minutes"><input id="ka" inputmode="decimal" placeholder="Amount"><select id="km">' + opts(METHODS, "club") + '</select><input id="kd" type="date" value="' + dayStr() + '"><input id="kn" placeholder="Note (optional)"></div>' +
     '<div id="le" class="err small"></div><button class="btn" id="ls">Save</button><div class="small muted" id="hint">This saves the charge and the payment together.</div>');
   var mode = "family";
@@ -1197,7 +1197,7 @@ function logForm(preId, done) {
     ids.forEach(function (sid) {
       var ch = { id: newId(), coach_id: me, student_id: sid, kind: kind, title: title, amount_cents: cents, lessons_total: kind === "package" ? (parseInt($("#cn", mod).value, 10) || null) : null, lessons_used: 0, expires_on: kind === "package" && $("#ce", mod).value ? $("#ce", mod).value : null, due_on: null, created_at: now };
       chs.push(ch);
-      if (paid) pays.push(withFee({ id: newId(), coach_id: me, student_id: sid, charge_id: ch.id, amount_cents: cents, method: $("#pm", mod).value, paid_on: $("#pdt", mod).value || dayStr(), note: $("#pn", mod).value.trim(), created_at: now }, sid, ch));
+      if (paid) pays.push(applyCut({ id: newId(), coach_id: me, student_id: sid, charge_id: ch.id, amount_cents: cents, method: $("#pm", mod).value, paid_on: $("#pdt", mod).value || dayStr(), note: $("#pn", mod).value.trim(), created_at: now }, sid, ch, $("#pcut", mod).value));
     });
     uniformFee(pays);
     api("charges", { json: chs, prefer: "return=minimal" }).then(function () { S.charges = S.charges.concat(chs); return pays.length ? api("payments", { json: pays, prefer: "return=minimal" }) : null; }).then(function () {
@@ -2101,6 +2101,7 @@ function defFee(sid, ch) {
   if (gs.length) return gs[0].fee_bps;
   var r = rateOf(sid); return r && r.fee_bps > 0 ? r.fee_bps : null;
 }
+function applyCut(row, sid, ch, typed) { typed = String(typed || "").trim(); if (!typed) return withFee(row, sid, ch); var b = cutBps(typed); if (b) row.fee_bps = b; return row; }
 function withFee(row, sid, ch) { var b = defFee(sid, ch); if (b) row.fee_bps = b; return row; }
 function uniformFee(rows) { if (rows.some(function (r) { return r.fee_bps != null; })) rows.forEach(function (r) { if (r.fee_bps == null) r.fee_bps = 0; }); return rows; }
 function oldestOpen(sid) { var pm = paidMap(sid); return chargesOf(sid).filter(function (c) { return (pm[c.id] || 0) < c.amount_cents; }).sort(function (x, y) { return String(x.created_at).localeCompare(String(y.created_at)); })[0] || null; }
@@ -2153,7 +2154,7 @@ function gplayer(g, sid, onclose) {
       (pays.length ? '<h3 style="margin-top:14px">Payments received</h3>' + pays.map(function (p) { return '<div class="row c" style="justify-content:space-between;margin:6px 0"><span><b>' + $d(p.amount_cents) + '</b> <span class="small muted">' + esc(p.paid_on) + ', ' + esc(METHODS[p.method] || p.method) + '</span></span><span><button class="pill" data-pedit="' + p.id + '">Edit</button> <button class="pill" data-pdel="' + p.id + '">Delete</button></span></div>'; }).join("") : "") +
       '<h3 style="margin-top:14px">Add for ' + esc(s.name) + '</h3><div class="chips"><button type="button" class="chp' + (mode === "pkg" ? " on" : "") + '" data-mode="pkg">Package of sessions</button><button type="button" class="chp' + (mode === "month" ? " on" : "") + '" data-mode="month">Month or season</button></div>' +
       '<input id="gpa" inputmode="decimal" placeholder="Amount, like 450">' + (mode === "pkg" ? '<input id="gpn" inputmode="numeric" value="10" placeholder="Sessions">' : '<input id="gpl" placeholder="Label, like October">') +
-      '<label class="pk"><input type="checkbox" id="gpp" checked> <span>Already paid</span></label><select id="gpm">' + Object.keys(METHODS).map(function (k) { return '<option value="' + k + '"' + (k === methodDefault() ? " selected" : "") + '>' + METHODS[k] + '</option>'; }).join("") + '</select><button class="btn" id="gpsave">Save</button>' +
+      '<label class="pk"><input type="checkbox" id="gpp" checked> <span>Already paid</span></label><select id="gpm">' + Object.keys(METHODS).map(function (k) { return '<option value="' + k + '"' + (k === methodDefault() ? " selected" : "") + '>' + METHODS[k] + '</option>'; }).join("") + '</select><div class="cap">Cut taken (club, app), percent. Blank uses the default, 0 means none</div><input id="gcut2" inputmode="decimal" placeholder="0"><button class="btn" id="gpsave">Save</button>' +
       '<h3 style="margin-top:14px">Attendance, came to ' + t.came + ' of ' + t.of + '</h3>' + (held.length ? held.map(function (l) { return '<label class="pk" style="padding:5px 0"><input type="checkbox" data-came="' + l.id + '"' + (attMark(l, sid) === true ? " checked" : "") + '> <span>' + esc(new Date(l.start_at).toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" })) + (sids(l).indexOf(sid) < 0 ? ' <span class="small muted">not on this roster</span>' : "") + '</span></label>'; }).join("") : '<div class="small muted">No sessions have happened yet.</div>') +
       '<div class="row c" style="gap:8px;margin-top:8px"><input id="gpd" type="date" max="' + dayStr() + '" value="' + dayStr() + '" style="margin:0"><button class="pill" id="gpadd">Add that session</button></div><div class="small muted">Flip a switch to fix who came. A package gets its session back when someone is marked absent.</div>' +
       (others.length ? '<h3 style="margin-top:14px">Other payments, lessons and more</h3>' + others.map(function (c) { var pd = pm[c.id] || 0; return '<div class="row c" style="justify-content:space-between;margin:6px 0"><span>' + esc(c.title) + '<div class="small muted">' + $d(c.amount_cents) + (pd >= c.amount_cents ? ", paid" : ", " + $d(c.amount_cents - pd) + " not paid yet") + '</div></span><button class="pill" data-gcount="' + c.id + '">Count here</button></div>'; }).join("") : "") +
@@ -2201,7 +2202,7 @@ function gplayer(g, sid, onclose) {
       var lab = mode === "pkg" ? n + " sessions" : ($("#gpl", mod).value || "").trim(), me = S.session.user.id;
       var ch = { id: newId(), coach_id: me, student_id: sid, kind: mode === "pkg" ? "package" : "monthly", title: lab ? g.name + ", " + lab : g.name, amount_cents: cents, lessons_total: mode === "pkg" ? n : null, lessons_used: 0, expires_on: null, due_on: null, created_at: new Date().toISOString() };
       var pay = $("#gpp", mod).checked ? { id: newId(), coach_id: me, student_id: sid, charge_id: ch.id, amount_cents: cents, method: $("#gpm", mod).value, paid_on: dayStr(), note: g.name, created_at: new Date().toISOString() } : null;
-      if (pay) withFee(pay, sid, ch);
+      if (pay) applyCut(pay, sid, ch, $("#gcut2", mod).value);
       b.disabled = true;
       busy(api("charges", { json: [ch], prefer: "return=minimal" }).then(function () { S.charges.push(ch); return setGlink(ch, g, true); }).then(function () { return pay ? api("payments", { json: [pay], prefer: "return=minimal" }).then(function () { S.payments.unshift(pay); setMethodDefault(pay.method); }) : null; }).then(applyPackagesWeb));
     }
