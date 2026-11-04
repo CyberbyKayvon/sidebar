@@ -555,11 +555,11 @@ function todayCards(box) {
   var sn = bookSnap(), tn = sn.td.length, ow = owedList(), tot = owedTotal(), hrs = sn.mDone + sn.mLeft;
   box.innerHTML = nextUpHtml(sn) + '<div class="cards">' +
     statCard("#/cal", "calendar", "Lessons today", String(tn), tn ? sn.tDone + " done, " + (tn - sn.tDone) + " left" : "Day off", null, tn ? sn.tDone / tn : null) +
-    statCard("#/cal", "calendar", "This week", sn.wDone + " of " + sn.wk, sn.wk ? sn.wLeft + " left to coach" : "Nothing booked", null, sn.wk ? sn.wDone / sn.wk : null) +
+    statCard("#/cal", "list", "Court hours this week", hrsText(hrs), hrs ? hrsText(sn.mDone) + " done, " + hrsText(sn.mLeft) + " to go" : "Nothing booked", null, hrs ? sn.mDone / hrs : null) +
     moneyCardHtml() +
     statCard("#/owed", "dollar", "Owed to you", $d(tot), ow.length ? ow.length + (ow.length === 1 ? " family" : " families") + " to remind" : "All caught up", tot > 0 ? "#d9822b" : null) +
     statCard("#/hours", "list", "Monthly hours", "By student", "Hours on court with each student", null, null) +
-    statCard("#/cal", "list", "Court hours this week", hrsText(hrs), hrs ? hrsText(sn.mDone) + " done, " + hrsText(sn.mLeft) + " to go" : "Nothing booked", null, hrs ? sn.mDone / hrs : null) +
+    statCard("#/cal", "calendar", "This week", sn.wDone + " of " + sn.wk, sn.wk ? sn.wLeft + " left to coach" : "Nothing booked", null, sn.wk ? sn.wDone / sn.wk : null) +
     '</div>';
   box.onclick = function (e) { var b = e.target.closest("[data-l]"); if (b) openLessonById(b.dataset.l); };
 }
