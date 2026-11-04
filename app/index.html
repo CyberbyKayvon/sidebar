@@ -1356,18 +1356,19 @@ function hoursOf(sid, d) {
 function hoursLine(sid) { var n = new Date(), p = new Date(n.getFullYear(), n.getMonth() - 1, 1), nm = function (d) { return d.toLocaleDateString(undefined, { month: "short" }); }; return nm(p) + " " + hrsText(hoursOf(sid, p)) + " h, " + nm(n) + " " + hrsText(hoursOf(sid, n)) + " h"; }
 function ymKey(d) { d = new Date(d); return d.getFullYear() + "-" + ("0" + (d.getMonth() + 1)).slice(-2); }
 function ymStart(ym) { return ym && /^\d{4}-\d{2}$/.test(ym) ? new Date(+ym.slice(0, 4), +ym.slice(5, 7) - 1, 1) : new Date(new Date().getFullYear(), new Date().getMonth(), 1); }
-function studentMonthStats(sid, start) {
+function studentMonthStats(sid, start, tab) {
   var end = new Date(start.getFullYear(), start.getMonth() + 1, 1), st = studentById(sid), out = { items: [], pm: 0, gm: 0, held: 0, ahead: 0, aheadMin: 0 };
   S.lessons.filter(function (l) { var t = new Date(l.start_at); return t >= start && t < end && sids(l).indexOf(sid) >= 0; }).sort(function (a, b) { return new Date(a.start_at) - new Date(b.start_at); }).forEach(function (l) {
-    var grp = !!l.group_id, status = !isPast(l) ? "Upcoming" : (grp && attMark(l, sid) !== true ? "Missed" : "Held");
+    var grp = !!l.group_id; if (tab === 0 && grp) return; if (tab === 1 && !grp) return;
+    var status = !isPast(l) ? "Upcoming" : (grp && attMark(l, sid) !== true ? "Missed" : "Held");
     out.items.push({ l: l, grp: grp, status: status });
     if (status === "Held") { out.held++; if (grp) out.gm += l.minutes; else out.pm += l.minutes; }
     if (status === "Upcoming") { out.ahead++; out.aheadMin += l.minutes; }
   });
   return out;
 }
-function studentMonthBlock(sid, start, withNav) {
-  var st = studentById(sid), x = studentMonthStats(sid, start), hh = function (m) { return hrsText(m) + " h"; };
+function studentMonthBlock(sid, start, withNav, tab) {
+  var st = studentById(sid), x = studentMonthStats(sid, start, tab), hh = function (m) { return hrsText(m) + " h"; };
   var title = start.toLocaleDateString(undefined, { month: "long", year: "numeric" }), prev = new Date(start.getFullYear(), start.getMonth() - 1, 1), next = new Date(start.getFullYear(), start.getMonth() + 1, 1);
   return (withNav ? '<div class="row c" style="justify-content:space-between;margin:8px 0"><a class="pill" href="#/hours/' + ymKey(prev) + '/' + sid + '">&larr;</a><b style="font-size:18px">' + esc(title) + '</b><a class="pill" href="#/hours/' + ymKey(next) + '/' + sid + '">&rarr;</a></div>' : "") +
     '<div class="card"><div class="small muted">' + esc(st ? st.name : "") + ', ' + esc(title) + '</div><div style="font-size:34px;font-weight:800;color:var(--court)">' + hh(x.pm + x.gm) + '</div><div class="small muted">on court, ' + x.held + (x.held === 1 ? " session" : " sessions") + '</div>' +
@@ -1375,14 +1376,19 @@ function studentMonthBlock(sid, start, withNav) {
 }
 function studentMonthView(ym, sid) {
   var start = ymStart(ym), st = studentById(sid); if (!st) { location.hash = "#/hours"; return; }
-  var x = studentMonthStats(sid, start), hh = function (m) { return hrsText(m) + " h"; }, title = start.toLocaleDateString(undefined, { month: "long", year: "numeric" });
+  var all = studentMonthStats(sid, start), hh = function (m) { return hrsText(m) + " h"; }, title = start.toLocaleDateString(undefined, { month: "long", year: "numeric" });
+  var pc = all.items.filter(function (i) { return !i.grp; }).length, gc = all.items.length - pc, both = pc > 0 && gc > 0;
+  var gn = {}; S.groups.forEach(function (g) { if ((g.member_ids || []).indexOf(sid) >= 0) gn[pname(g)] = 1; }); gn = Object.keys(gn); var gname = gn.length === 1 ? gn[0] : "Group";
+  var tab = both ? (window.SMTAB && window.SMTAB.k === sid + ym ? window.SMTAB.t : 0) : (pc > 0 ? 0 : (gc > 0 ? 1 : 2));
+  var x = both && tab !== 2 || !both ? studentMonthStats(sid, start, tab === 2 ? undefined : tab) : all;
   var share = st.name + ", " + title + ": " + hh(x.pm + x.gm) + " across " + x.held + " sessions. Privates " + hh(x.pm) + ", group " + hh(x.gm) + ".";
-  app.innerHTML = shell('<div class="hhead"><a class="small" href="#/hours/' + ym + '">&larr; Monthly hours</a><h1>' + esc(st.name) + '</h1></div>' + studentMonthBlock(sid, start, true) +
-    '<h2>Sessions</h2>' + (x.items.length ? x.items.map(function (i) {
+  app.innerHTML = shell('<div class="hhead"><a class="small" href="#/hours/' + ym + '">&larr; Monthly hours</a><h1>' + esc(st.name) + '</h1></div>' + (both ? '<div class="row" style="gap:6px;margin:8px 0">' + [["Privates", 0], [gname, 1], ["All", 2]].map(function (t) { return '<button class="pill' + (tab === t[1] ? " on" : "") + '" data-smt="' + t[1] + '" style="' + (tab === t[1] ? "background:var(--court);color:#fff;" : "") + 'flex:1">' + esc(t[0]) + '</button>'; }).join("") + '</div>' : "") + studentMonthBlock(sid, start, true, tab === 2 ? undefined : tab) +
+    '<h2>' + (tab === 0 ? "Private lessons" : tab === 1 ? esc(gname) + " sessions" : "Sessions") + '</h2>' + (x.items.length ? x.items.map(function (i) {
       var col = i.status === "Held" ? (i.grp ? GBLUE : "var(--court)") : (i.status === "Missed" ? "#f5a623" : "var(--muted)");
       return '<button class="lr" data-l="' + i.l.id + '" style="width:100%;text-align:left"><div class="row c" style="justify-content:space-between;padding:8px 0;border-top:1px solid var(--line)"><span><b>' + esc(fmtDate(i.l.start_at, { weekday: "short", month: "short", day: "numeric" })) + '</b><div class="small" style="color:' + col + '">' + (i.grp ? "Group" : "Private") + ', ' + i.status + '</div></span><span class="small muted">' + esc(rangeText(i.l)) + ', ' + hh(i.l.minutes) + '</span></div></button>';
     }).join("") : '<div class="card empty">Nothing in ' + esc(title) + '.</div>') + '<button class="btn ghost" id="hshare" style="margin-top:12px">Copy summary to share</button>');
   app.onclick = function (e) {
+    var tb = e.target.closest("[data-smt]"); if (tb) { window.SMTAB = { k: sid + ym, t: +tb.dataset.smt }; studentMonthView(ym, sid); return; }
     var b = e.target.closest("[data-l]"); if (b) { openLessonById(b.dataset.l); return; }
     if (e.target.id === "hshare") { (navigator.clipboard ? navigator.clipboard.writeText(share) : Promise.reject()).then(function () { e.target.textContent = "Copied"; }, function () { window.prompt("Copy this", share); }); }
   };
